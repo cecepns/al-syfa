@@ -1,0 +1,465 @@
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  Store,
+  Plus,
+  PhoneCall,
+  MapPin,
+  ChevronRight,
+  ExternalLink,
+  Search,
+  Filter,
+  CheckCircle2
+} from 'lucide-react';
+import toast from 'react-hot-toast';
+import MobileLayout from '../../components/layout/MobileLayout';
+import SearchInput from '../../components/common/SearchInput';
+import Pagination from '../../components/common/Pagination';
+import Modal from '../../components/common/Modal';
+import { request } from '../../utils/request';
+import { API_ENDPOINTS } from '../../utils/endpoints';
+import { useGeolocation } from '../../hooks/useGeolocation';
+
+export default function CustomerList() {
+  const [customers, setCustomers] = useState([]);
+  const [pagination, setPagination] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [shopType, setShopType] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+
+  // Add Customer Modal State
+  const [modalOpen, setModalOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [form, setForm] = useState({
+    name: '',
+    owner_name: '',
+    shop_type: 'ritel',
+    phone: '',
+    address: '',
+    province_code: '32',
+    province_name: 'Jawa Barat',
+    regency_code: '32.01',
+    regency_name: 'Kabupaten Bogor',
+    district_code: '',
+    district_name: '',
+    village_code: '',
+    village_name: '',
+    latitude: '',
+    longitude: '',
+    credit_limit: 5000000,
+    notes: ''
+  });
+
+  // Wilayah API options
+  const [provinces, setProvinces] = useState([]);
+  const [regencies, setRegencies] = useState([]);
+  const [districts, setDistricts] = useState([]);
+  const [villages, setVillages] = useState([]);
+
+  const geo = useGeolocation();
+
+  useEffect(() => {
+    fetchCustomers();
+  }, [page, limit, search, shopType]);
+
+  const fetchCustomers = async () => {
+    setLoading(true);
+    try {
+      const res = await request.get(API_ENDPOINTS.CUSTOMERS.LIST, {
+        page,
+        limit,
+        search,
+        shop_type: shopType || undefined,
+      });
+      setCustomers(res.data || []);
+      setPagination(res.pagination);
+    } catch (err) {
+      toast.error(err.message || 'Gagal memuat pelanggan');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load Provinces on Modal Open
+  useEffect(() => {
+    if (modalOpen) {
+      loadProvinces();
+      // Auto-set current GPS coordinates
+      if (geo.latitude && geo.longitude) {
+        setForm((prev) => ({
+          ...prev,
+          latitude: geo.latitude.toFixed(6),
+          longitude: geo.longitude.toFixed(6),
+        }));
+      }
+    }
+  }, [modalOpen]);
+
+  const loadProvinces = async () => {
+    try {
+      const res = await request.get(API_ENDPOINTS.WILAYAH.PROVINCES);
+      setProvinces(res.data || []);
+      // Default to Jawa Barat
+      loadRegencies('32');
+    } catch (e) {
+      console.warn(e);
+    }
+  };
+
+  const loadRegencies = async (provCode) => {
+    try {
+      const res = await request.get(API_ENDPOINTS.WILAYAH.REGENCIES(provCode));
+      setRegencies(res.data || []);
+      // Default to Kab Bogor
+      loadDistricts('32.01');
+    } catch (e) {
+      console.warn(e);
+    }
+  };
+
+  const loadDistricts = async (regCode) => {
+    try {
+      const res = await request.get(API_ENDPOINTS.WILAYAH.DISTRICTS(regCode));
+      setDistricts(res.data || []);
+    } catch (e) {
+      console.warn(e);
+    }
+  };
+
+  const loadVillages = async (distCode) => {
+    try {
+      const res = await request.get(API_ENDPOINTS.WILAYAH.VILLAGES(distCode));
+      setVillages(res.data || []);
+    } catch (e) {
+      console.warn(e);
+    }
+  };
+
+  const handleDistrictChange = (distCode) => {
+    const selected = districts.find((d) => d.code === distCode);
+    setForm((prev) => ({
+      ...prev,
+      district_code: distCode,
+      district_name: selected?.name || '',
+      village_code: '',
+      village_name: '',
+    }));
+    loadVillages(distCode);
+  };
+
+  const handleVillageChange = (vilCode) => {
+    const selected = villages.find((v) => v.code === vilCode);
+    setForm((prev) => ({
+      ...prev,
+      village_code: vilCode,
+      village_name: selected?.name || '',
+    }));
+  };
+
+  const handleSubmitCustomer = async (e) => {
+    e.preventDefault();
+    if (!form.name || !form.phone || !form.address) {
+      toast.error('Nama toko, no telepon, dan alamat wajib diisi');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await request.post(API_ENDPOINTS.CUSTOMERS.CREATE, form);
+      toast.success('Toko baru berhasil ditambahkan!');
+      setModalOpen(false);
+      fetchCustomers();
+    } catch (err) {
+      toast.error(err.message || 'Gagal menyimpan data toko');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <MobileLayout title="Database Toko / Outlet" showBack={true}>
+      {/* Search & Actions Bar */}
+      <div className="space-y-2 mb-4">
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <SearchInput
+              value={search}
+              onChange={(val) => {
+                setSearch(val);
+                setPage(1);
+              }}
+              placeholder="Cari nama toko, alamat, pemilik..."
+            />
+          </div>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-sm shadow-emerald-200 transition-all shrink-0"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">Tambah Toko</span>
+          </button>
+        </div>
+
+        {/* Filter Pills */}
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+          {[
+            { key: '', label: 'Semua Tipe' },
+            { key: 'ritel', label: 'Ritel' },
+            { key: 'grosir', label: 'Grosir' },
+            { key: 'apotek_klinik', label: 'Apotek / Klinik' },
+            { key: 'agen', label: 'Agen' },
+          ].map((type) => (
+            <button
+              key={type.key}
+              onClick={() => {
+                setShopType(type.key);
+                setPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors ${
+                shopType === type.key
+                  ? 'bg-slate-800 text-white'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {type.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Customer List Cards */}
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((n) => (
+            <div key={n} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 animate-pulse">
+              <div className="h-4 bg-slate-200 rounded w-1/2 mb-2" />
+              <div className="h-3 bg-slate-100 rounded w-3/4 mb-3" />
+              <div className="h-8 bg-slate-100 rounded w-full" />
+            </div>
+          ))}
+        </div>
+      ) : customers.length > 0 ? (
+        <div className="space-y-3 mb-4">
+          {customers.map((c) => (
+            <div
+              key={c.id}
+              className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-emerald-200 transition-all"
+            >
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                      {c.shop_type?.replace('_', ' ')}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">{c.code}</span>
+                  </div>
+                  <h4 className="text-sm font-extrabold text-slate-800 mt-1">{c.name}</h4>
+                  <p className="text-[11px] text-slate-500 font-medium">Pemilik: {c.owner_name || '-'}</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 flex items-start gap-1.5 mb-2.5">
+                <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                <span>{c.address} {c.district_name ? `(${c.district_name})` : ''}</span>
+              </p>
+
+              {/* Piutang / Balance Alert */}
+              {Number(c.current_balance) > 0 && (
+                <div className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg mb-3 flex justify-between">
+                  <span>Piutang Belum Lunas:</span>
+                  <span>Rp {Number(c.current_balance).toLocaleString('id-ID')}</span>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                {c.phone && (
+                  <a
+                    href={`https://wa.me/62${c.phone.replace(/^0/, '')}?text=${encodeURIComponent(`Halo ${c.name}, saya dari sales Alsyifa Herbal ingin mengkonfirmasi kebutuhan stok produk Anda.`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 text-xs font-bold transition-colors"
+                  >
+                    <PhoneCall className="h-3.5 w-3.5" /> WhatsApp
+                  </a>
+                )}
+                <Link
+                  to={`/sales/visit/${c.id}`}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm shadow-emerald-200"
+                >
+                  <MapPin className="h-3.5 w-3.5" /> Kunjungi Toko
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl p-8 text-center border border-slate-100 shadow-sm">
+          <Store className="h-10 w-10 text-slate-300 mx-auto mb-2" />
+          <h4 className="text-sm font-bold text-slate-700">Toko tidak ditemukan</h4>
+          <p className="text-xs text-slate-400 mt-1 mb-4">Coba ubah kata kunci pencarian atau tambah toko baru.</p>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow"
+          >
+            <Plus className="h-4 w-4" /> Tambah Toko Sekarang
+          </button>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {pagination && pagination.totalPages > 1 && (
+        <Pagination
+          pagination={pagination}
+          onPageChange={(p) => setPage(p)}
+          onLimitChange={(l) => {
+            setLimit(l);
+            setPage(1);
+          }}
+        />
+      )}
+
+      {/* Add Customer Modal with Wilayah.id Integration */}
+      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Tambah Toko Pelanggan Baru">
+        <form onSubmit={handleSubmitCustomer} className="space-y-3.5 text-xs">
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">Nama Toko / Outlet *</label>
+            <input
+              type="text"
+              required
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Contoh: Toko Herbal Barokah Jaya"
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">Nama Pemilik</label>
+              <input
+                type="text"
+                value={form.owner_name}
+                onChange={(e) => setForm({ ...form, owner_name: e.target.value })}
+                placeholder="Contoh: H. Sulaiman"
+                className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">Tipe Toko</label>
+              <select
+                value={form.shop_type}
+                onChange={(e) => setForm({ ...form, shop_type: e.target.value })}
+                className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 focus:border-emerald-500 focus:outline-none"
+              >
+                <option value="ritel">Ritel</option>
+                <option value="grosir">Grosir</option>
+                <option value="apotek_klinik">Apotek / Klinik</option>
+                <option value="agen">Agen</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">No. WhatsApp / HP *</label>
+            <input
+              type="tel"
+              required
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              placeholder="081234567890"
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Wilayah.id Cascading Dropdowns */}
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+            <span className="font-bold text-slate-700 block uppercase tracking-wider text-[11px]">
+              Data Wilayah (Terintegrasi wilayah.id)
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Kecamatan</label>
+                <select
+                  value={form.district_code}
+                  onChange={(e) => handleDistrictChange(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 p-2 text-slate-800 bg-white"
+                >
+                  <option value="">Pilih Kecamatan...</option>
+                  {districts.map((d) => (
+                    <option key={d.code} value={d.code}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Desa / Kelurahan</label>
+                <select
+                  value={form.village_code}
+                  onChange={(e) => handleVillageChange(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 p-2 text-slate-800 bg-white"
+                >
+                  <option value="">Pilih Desa...</option>
+                  {villages.map((v) => (
+                    <option key={v.code} value={v.code}>{v.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">Alamat Lengkap *</label>
+            <textarea
+              required
+              rows={2}
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              placeholder="Jl. Raya Utama No. XX..."
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">Latitude GPS</label>
+              <input
+                type="text"
+                value={form.latitude}
+                onChange={(e) => setForm({ ...form, latitude: e.target.value })}
+                className="w-full rounded-xl border border-slate-200 p-2 text-slate-800 font-mono text-[11px]"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">Longitude GPS</label>
+              <input
+                type="text"
+                value={form.longitude}
+                onChange={(e) => setForm({ ...form, longitude: e.target.value })}
+                className="w-full rounded-xl border border-slate-200 p-2 text-slate-800 font-mono text-[11px]"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setModalOpen(false)}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md shadow-emerald-200 disabled:opacity-50"
+            >
+              {submitting ? 'Menyimpan...' : 'Simpan Toko'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </MobileLayout>
+  );
+}
