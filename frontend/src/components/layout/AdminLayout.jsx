@@ -70,8 +70,12 @@ export default function AdminLayout({ children }) {
         {/* Brand Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800 bg-slate-950/40">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-emerald-900/40">
-              A
+            <div className="h-11 w-11 rounded-xl bg-white/10 p-1 flex items-center justify-center shadow-md border border-white/10 overflow-hidden">
+              <img
+                src="/logo-transparent.png"
+                alt="Logo Alsyifa"
+                className="h-full w-full object-contain filter drop-shadow"
+              />
             </div>
             <div>
               <h1 className="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">

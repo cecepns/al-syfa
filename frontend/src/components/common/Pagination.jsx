@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import AppSelect from './AppSelect';
 
 export default function Pagination({ pagination, onPageChange, onLimitChange }) {
   if (!pagination) return null;
@@ -28,16 +29,38 @@ export default function Pagination({ pagination, onPageChange, onLimitChange }) 
       {/* Limit & Info */}
       <div className="flex items-center gap-3 text-slate-500 text-xs sm:text-sm">
         <span>Menampilkan</span>
-        <select
-          value={limit}
-          onChange={(e) => onLimitChange(Number(e.target.value))}
-          className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 focus:border-emerald-500 focus:outline-none"
-        >
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-          <option value={100}>100</option>
-        </select>
+        <div className="w-20">
+          <AppSelect
+            value={limit}
+            onChange={(val) => onLimitChange(Number(val))}
+            options={[
+              { value: 10, label: '10' },
+              { value: 25, label: '25' },
+              { value: 50, label: '50' },
+              { value: 100, label: '100' },
+            ]}
+            isSearchable={false}
+            menuPlacement="top"
+            styles={{
+              control: (base) => ({
+                ...base,
+                minHeight: '28px',
+                height: '28px',
+                borderRadius: '0.5rem',
+                fontSize: '0.75rem',
+                padding: '0 2px',
+              }),
+              valueContainer: (base) => ({
+                ...base,
+                padding: '0 6px',
+              }),
+              dropdownIndicator: (base) => ({
+                ...base,
+                padding: '2px',
+              }),
+            }}
+          />
+        </div>
         <span>
           dari <strong className="font-semibold text-slate-700">{total}</strong> data
           ({startItem}-{endItem})

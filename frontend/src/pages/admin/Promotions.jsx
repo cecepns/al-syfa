@@ -6,6 +6,7 @@ import Modal from '../../components/common/Modal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
+import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
 
@@ -283,14 +284,14 @@ export default function Promotions() {
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Tipe Diskon
               </label>
-              <select
+              <AppSelect
                 value={form.discount_type}
-                onChange={(e) => setForm({ ...form, discount_type: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-white"
-              >
-                <option value="percentage">Persentase (%)</option>
-                <option value="fixed">Nominal Tetap (Rp)</option>
-              </select>
+                onChange={(val) => setForm({ ...form, discount_type: val })}
+                options={[
+                  { value: 'percentage', label: 'Persentase (%)' },
+                  { value: 'fixed', label: 'Nominal Tetap (Rp)' },
+                ]}
+              />
             </div>
           </div>
 

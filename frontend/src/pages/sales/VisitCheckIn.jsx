@@ -15,6 +15,7 @@ import {
 import toast from 'react-hot-toast';
 import MobileLayout from '../../components/layout/MobileLayout';
 import CameraCapture from '../../components/common/CameraCapture';
+import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
 import { useGeolocation } from '../../hooks/useGeolocation';
@@ -211,16 +212,16 @@ export default function VisitCheckIn() {
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-slate-600 font-semibold mb-1">Hasil Kunjungan:</label>
-                <select
+                <AppSelect
                   value={resultType}
-                  onChange={(e) => setResultType(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-slate-50"
-                >
-                  <option value="order">Closing Order (Pesanan Masuk)</option>
-                  <option value="follow_up">Follow Up / Negosiasi</option>
-                  <option value="stok_penuh">Stok Toko Masih Cukup</option>
-                  <option value="toko_tutup">Toko Sedang Tutup / Pemilik Keluar</option>
-                </select>
+                  onChange={(val) => setResultType(val)}
+                  options={[
+                    { value: 'order', label: 'Closing Order (Pesanan Masuk)' },
+                    { value: 'follow_up', label: 'Follow Up / Negosiasi' },
+                    { value: 'stok_penuh', label: 'Stok Toko Masih Cukup' },
+                    { value: 'toko_tutup', label: 'Toko Sedang Tutup / Pemilik Keluar' },
+                  ]}
+                />
               </div>
 
               <div>

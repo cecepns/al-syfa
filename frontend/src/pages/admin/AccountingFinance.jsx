@@ -16,6 +16,7 @@ import AdminLayout from '../../components/layout/AdminLayout';
 import Modal from '../../components/common/Modal';
 import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
+import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
 
@@ -285,22 +286,18 @@ export default function AccountingFinance() {
             <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
               Pilih Tagihan Faktur *
             </label>
-            <select
-              required
+            <AppSelect
               value={form.order_id}
-              onChange={(e) => handleOrderSelect(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-white"
-            >
-              <option value="">-- Pilih Faktur Tagihan --</option>
-              {ordersWithBalance.map((ord) => {
+              onChange={(val) => handleOrderSelect(val)}
+              placeholder="-- Pilih atau cari faktur tagihan --"
+              options={ordersWithBalance.map((ord) => {
                 const sisa = Number(ord.grand_total) - Number(ord.paid_amount);
-                return (
-                  <option key={ord.id} value={ord.id}>
-                    {ord.invoice_number} - {ord.customer_name} (Sisa: Rp {sisa.toLocaleString('id-ID')})
-                  </option>
-                );
+                return {
+                  value: ord.id,
+                  label: `${ord.invoice_number} - ${ord.customer_name} (Sisa: Rp ${sisa.toLocaleString('id-ID')})`,
+                };
               })}
-            </select>
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -321,14 +318,14 @@ export default function AccountingFinance() {
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Metode Pembayaran
               </label>
-              <select
+              <AppSelect
                 value={form.payment_method}
-                onChange={(e) => setForm({ ...form, payment_method: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-white"
-              >
-                <option value="tunai">Tunai (Cash Sales)</option>
-                <option value="transfer">Transfer Bank</option>
-              </select>
+                onChange={(val) => setForm({ ...form, payment_method: val })}
+                options={[
+                  { value: 'tunai', label: 'Tunai (Cash Sales)' },
+                  { value: 'transfer', label: 'Transfer Bank' },
+                ]}
+              />
             </div>
           </div>
 

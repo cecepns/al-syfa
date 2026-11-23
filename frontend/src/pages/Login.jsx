@@ -49,8 +49,12 @@ export default function Login() {
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 sm:p-8 border border-white/20 animate-in fade-in zoom-in-95 duration-300">
         {/* Brand Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-black text-2xl shadow-lg shadow-emerald-600/30 mb-3">
-            A
+          <div className="flex justify-center mb-3">
+            <img
+              src="/logo-transparent.png"
+              alt="Logo Alsyifa Herbal"
+              className="h-20 w-auto object-contain drop-shadow-md hover:scale-105 transition-transform"
+            />
           </div>
           <h2 className="text-2xl font-black text-slate-800 tracking-tight">ALSYIFA SALES</h2>
           <p className="text-xs text-slate-500 font-medium mt-1">

@@ -18,6 +18,8 @@ import confetti from 'canvas-confetti';
 import toast from 'react-hot-toast';
 import MobileLayout from '../../components/layout/MobileLayout';
 import ReceiptModal from '../../components/common/ReceiptModal';
+import AppSelect from '../../components/common/AppSelect';
+import DebouncedAsyncSelect from '../../components/common/DebouncedAsyncSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
 
@@ -72,6 +74,21 @@ export default function OrderCapture() {
       setVanStocks(stockMap);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const loadCustomerOptions = async (inputValue) => {
+    try {
+      const res = await request.get(API_ENDPOINTS.CUSTOMERS.LIST, {
+        search: inputValue || '',
+        limit: 25,
+      });
+      return (res.data || []).map((c) => ({
+        value: c.id,
+        label: `${c.name} (${c.district_name || c.address})`,
+      }));
+    } catch (e) {
+      return [];
     }
   };
 
@@ -212,19 +229,13 @@ export default function OrderCapture() {
           <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
             <Store className="h-4 w-4 text-emerald-600" /> Pilih Toko Pelanggan *
           </label>
-          <select
+          <DebouncedAsyncSelect
+            loadOptions={loadCustomerOptions}
             value={selectedCustomerId}
-            onChange={(e) => setSelectedCustomerId(e.target.value)}
-            required
-            className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-800 bg-slate-50 focus:border-emerald-500 focus:outline-none"
-          >
-            <option value="">-- Pilih Toko / Outlet --</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.district_name || c.address})
-              </option>
-            ))}
-          </select>
+            onChange={(val) => setSelectedCustomerId(val)}
+            selectedLabel={customers.find((c) => String(c.id) === String(selectedCustomerId))?.name}
+            placeholder="Ketik nama toko untuk mencari dari database..."
+          />
         </div>
 
         {/* Product Catalog Grid (Adding Items) */}
@@ -333,18 +344,16 @@ export default function OrderCapture() {
             <label className="block text-xs font-bold text-amber-900 uppercase tracking-wider mb-1 flex items-center gap-1.5">
               <Sparkles className="h-4 w-4 text-amber-600" /> Program Promo Dari Pusat
             </label>
-            <select
+            <AppSelect
               value={selectedPromoId}
-              onChange={(e) => setSelectedPromoId(e.target.value)}
-              className="w-full rounded-xl border border-amber-200 p-2 text-xs text-slate-800 bg-white"
-            >
-              <option value="">-- Tanpa Promo --</option>
-              {promotions.map((pr) => (
-                <option key={pr.id} value={pr.id}>
-                  {pr.title} (Min: Rp {Number(pr.min_order_amount).toLocaleString('id-ID')})
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setSelectedPromoId(val)}
+              placeholder="-- Tanpa Promo --"
+              isClearable={true}
+              options={promotions.map((pr) => ({
+                value: pr.id,
+                label: `${pr.title} (Min: Rp ${Number(pr.min_order_amount).toLocaleString('id-ID')})`,
+              }))}
+            />
 
             {discountAmount > 0 && (
               <p className="text-[11px] text-emerald-700 font-bold mt-1.5">

@@ -17,6 +17,8 @@ import Modal from '../../components/common/Modal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
+import AppSelect from '../../components/common/AppSelect';
+import DebouncedAsyncSelect from '../../components/common/DebouncedAsyncSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
 
@@ -110,6 +112,22 @@ export default function TerritoryRoutes() {
       setVillages(res.data || []);
     } catch (e) {
       console.warn(e);
+    }
+  };
+
+  const loadSalesOptions = async (inputValue) => {
+    try {
+      const res = await request.get(API_ENDPOINTS.USERS.LIST, {
+        role: 'sales',
+        search: inputValue || '',
+        limit: 25,
+      });
+      return (res.data || []).map((s) => ({
+        value: s.id,
+        label: `${s.name} (${s.vehicle_type} - ${s.vehicle_number || ''})`,
+      }));
+    } catch (e) {
+      return [];
     }
   };
 
@@ -359,38 +377,31 @@ export default function TerritoryRoutes() {
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Sales Petugas *
               </label>
-              <select
-                required
+              <DebouncedAsyncSelect
+                loadOptions={loadSalesOptions}
                 value={form.sales_id}
-                onChange={(e) => setForm({ ...form, sales_id: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-white"
-              >
-                <option value="">Pilih Sales...</option>
-                {salesList.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.vehicle_type} - {s.vehicle_number || ''})
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setForm({ ...form, sales_id: val })}
+                selectedLabel={salesList.find((s) => String(s.id) === String(form.sales_id))?.name}
+                placeholder="Pilih atau cari sales..."
+              />
             </div>
 
             <div>
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Hari Rute (Senin - Sabtu) *
               </label>
-              <select
-                required
+              <AppSelect
                 value={form.day_of_week}
-                onChange={(e) => setForm({ ...form, day_of_week: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-white capitalize"
-              >
-                <option value="senin">Senin</option>
-                <option value="selasa">Selasa</option>
-                <option value="rabu">Rabu</option>
-                <option value="kamis">Kamis</option>
-                <option value="jumat">Jumat</option>
-                <option value="sabtu">Sabtu</option>
-              </select>
+                onChange={(val) => setForm({ ...form, day_of_week: val })}
+                options={[
+                  { value: 'senin', label: 'Senin' },
+                  { value: 'selasa', label: 'Selasa' },
+                  { value: 'rabu', label: 'Rabu' },
+                  { value: 'kamis', label: 'Kamis' },
+                  { value: 'jumat', label: 'Jumat' },
+                  { value: 'sabtu', label: 'Sabtu' },
+                ]}
+              />
             </div>
           </div>
 
@@ -402,19 +413,12 @@ export default function TerritoryRoutes() {
 
             <div>
               <label className="block text-slate-500 font-semibold mb-1">Kecamatan *</label>
-              <select
-                required
+              <AppSelect
                 value={form.district_code}
-                onChange={(e) => handleDistrictChange(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-white"
-              >
-                <option value="">Pilih Kecamatan di Kab. Bogor...</option>
-                {districts.map((d) => (
-                  <option key={d.code} value={d.code}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => handleDistrictChange(val)}
+                placeholder="Pilih Kecamatan di Kab. Bogor..."
+                options={districts.map((d) => ({ value: d.code, label: d.name }))}
+              />
             </div>
 
             <div>

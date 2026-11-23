@@ -49,8 +49,12 @@ export default function MobileLayout({ children, title, showBack = false }) {
                 <ArrowLeft className="h-5 w-5" />
               </button>
             ) : (
-              <div className="h-8 w-8 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-sm border border-white/20">
-                A
+              <div className="h-9 w-9 rounded-lg bg-white/15 p-1 flex items-center justify-center border border-white/20 overflow-hidden">
+                <img
+                  src="/logo-transparent.png"
+                  alt="Logo Alsyifa"
+                  className="h-full w-full object-contain"
+                />
               </div>
             )}
             <div>

@@ -16,6 +16,7 @@ import Modal from '../../components/common/Modal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
+import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
 
@@ -413,16 +414,16 @@ export default function Customers() {
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Jenis Toko
               </label>
-              <select
+              <AppSelect
                 value={form.shop_type}
-                onChange={(e) => setForm({ ...form, shop_type: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-white"
-              >
-                <option value="ritel">Ritel</option>
-                <option value="grosir">Grosir</option>
-                <option value="apotek_klinik">Apotek / Klinik</option>
-                <option value="agen">Agen</option>
-              </select>
+                onChange={(val) => setForm({ ...form, shop_type: val })}
+                options={[
+                  { value: 'ritel', label: 'Ritel' },
+                  { value: 'grosir', label: 'Grosir' },
+                  { value: 'apotek_klinik', label: 'Apotek / Klinik' },
+                  { value: 'agen', label: 'Agen' },
+                ]}
+              />
             </div>
           </div>
 
@@ -447,29 +448,22 @@ export default function Customers() {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Kecamatan</label>
-                <select
+                <AppSelect
                   value={form.district_code}
-                  onChange={(e) => handleDistrictChange(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 p-2 text-slate-800 bg-white"
-                >
-                  <option value="">Pilih Kecamatan...</option>
-                  {districts.map((d) => (
-                    <option key={d.code} value={d.code}>{d.name}</option>
-                  ))}
-                </select>
+                  onChange={(val) => handleDistrictChange(val)}
+                  placeholder="Pilih Kecamatan..."
+                  options={districts.map((d) => ({ value: d.code, label: d.name }))}
+                />
               </div>
               <div>
                 <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Desa / Kelurahan</label>
-                <select
+                <AppSelect
                   value={form.village_code}
-                  onChange={(e) => handleVillageChange(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 p-2 text-slate-800 bg-white"
-                >
-                  <option value="">Pilih Desa...</option>
-                  {villages.map((v) => (
-                    <option key={v.code} value={v.code}>{v.name}</option>
-                  ))}
-                </select>
+                  onChange={(val) => handleVillageChange(val)}
+                  placeholder="Pilih Desa..."
+                  isDisabled={!form.district_code}
+                  options={villages.map((v) => ({ value: v.code, label: v.name }))}
+                />
               </div>
             </div>
           </div>

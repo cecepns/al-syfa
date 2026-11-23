@@ -5,6 +5,8 @@ import AdminLayout from '../../components/layout/AdminLayout';
 import Modal from '../../components/common/Modal';
 import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
+import AppSelect from '../../components/common/AppSelect';
+import DebouncedAsyncSelect from '../../components/common/DebouncedAsyncSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
 
@@ -53,6 +55,37 @@ export default function VanStockManagement() {
       toast.error('Gagal memuat stok kendaraan');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSalesOptions = async (inputValue) => {
+    try {
+      const res = await request.get(API_ENDPOINTS.USERS.LIST, {
+        role: 'sales',
+        search: inputValue || '',
+        limit: 25,
+      });
+      return (res.data || []).map((s) => ({
+        value: s.id,
+        label: `${s.name} (${s.vehicle_type} - ${s.vehicle_number || ''})`,
+      }));
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const loadProductOptions = async (inputValue) => {
+    try {
+      const res = await request.get(API_ENDPOINTS.PRODUCTS.LIST, {
+        search: inputValue || '',
+        limit: 25,
+      });
+      return (res.data || []).map((p) => ({
+        value: p.id,
+        label: `${p.name} (Gudang: ${p.warehouse_stock} ${p.unit})`,
+      }));
+    } catch (e) {
+      return [];
     }
   };
 
@@ -130,22 +163,20 @@ export default function VanStockManagement() {
           />
         </div>
 
-        <div className="flex gap-2 w-full sm:w-auto text-xs">
-          <select
+        <div className="w-full sm:w-64 text-xs">
+          <AppSelect
             value={selectedSalesId}
-            onChange={(e) => {
-              setSelectedSalesId(e.target.value);
+            onChange={(val) => {
+              setSelectedSalesId(val);
               setPage(1);
             }}
-            className="rounded-xl border border-slate-200 p-2 text-slate-800 bg-white"
-          >
-            <option value="">Semua Sales Kendaraan</option>
-            {salesList.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.vehicle_type} - {s.vehicle_number || ''})
-              </option>
-            ))}
-          </select>
+            placeholder="Semua Sales Kendaraan"
+            isClearable={true}
+            options={salesList.map((s) => ({
+              value: s.id,
+              label: `${s.name} (${s.vehicle_type} - ${s.vehicle_number || ''})`,
+            }))}
+          />
         </div>
       </div>
 
@@ -229,38 +260,26 @@ export default function VanStockManagement() {
             <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
               Pilih Petugas Sales & Kendaraan *
             </label>
-            <select
-              required
+            <DebouncedAsyncSelect
+              loadOptions={loadSalesOptions}
               value={form.sales_id}
-              onChange={(e) => setForm({ ...form, sales_id: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-white"
-            >
-              <option value="">Pilih Sales...</option>
-              {salesList.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.vehicle_type} - {s.vehicle_number || ''})
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setForm({ ...form, sales_id: val })}
+              selectedLabel={salesList.find((s) => String(s.id) === String(form.sales_id))?.name}
+              placeholder="Pilih atau cari sales..."
+            />
           </div>
 
           <div>
             <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
               Produk Herbal Alsyifa *
             </label>
-            <select
-              required
+            <DebouncedAsyncSelect
+              loadOptions={loadProductOptions}
               value={form.product_id}
-              onChange={(e) => setForm({ ...form, product_id: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-white"
-            >
-              <option value="">Pilih Produk...</option>
-              {productList.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} (Tersedia Gudang: {p.warehouse_stock} {p.unit})
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setForm({ ...form, product_id: val })}
+              selectedLabel={productList.find((p) => String(p.id) === String(form.product_id))?.name}
+              placeholder="Pilih atau cari produk gudang..."
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

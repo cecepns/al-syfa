@@ -19,6 +19,7 @@ import Modal from '../../components/common/Modal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
+import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
 
@@ -391,15 +392,15 @@ export default function UsersManagement() {
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Peran Akun (Role) *
               </label>
-              <select
+              <AppSelect
                 value={form.role}
-                onChange={(e) => setForm({ ...form, role: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 bg-white"
-              >
-                <option value="sales">Sales Lapangan</option>
-                <option value="supervisor">Supervisor</option>
-                <option value="admin">Admin / Sales Manager</option>
-              </select>
+                onChange={(val) => setForm({ ...form, role: val })}
+                options={[
+                  { value: 'sales', label: 'Sales Lapangan' },
+                  { value: 'supervisor', label: 'Supervisor' },
+                  { value: 'admin', label: 'Admin / Sales Manager' },
+                ]}
+              />
             </div>
           </div>
 
@@ -453,15 +454,15 @@ export default function UsersManagement() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Tipe Kendaraan</label>
-                  <select
+                  <AppSelect
                     value={form.vehicle_type}
-                    onChange={(e) => setForm({ ...form, vehicle_type: e.target.value })}
-                    className="w-full rounded-lg border border-slate-200 p-2 text-slate-800 bg-white"
-                  >
-                    <option value="van">Mobil Van</option>
-                    <option value="motor">Sepeda Motor</option>
-                    <option value="mobil_box">Mobil Box</option>
-                  </select>
+                    onChange={(val) => setForm({ ...form, vehicle_type: val })}
+                    options={[
+                      { value: 'van', label: 'Mobil Van' },
+                      { value: 'motor', label: 'Sepeda Motor' },
+                      { value: 'mobil_box', label: 'Mobil Box' },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Plat Nomor Kendaraan</label>
