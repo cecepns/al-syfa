@@ -49,7 +49,7 @@ export default function MobileLayout({ children, title, showBack = false }) {
                 <ArrowLeft className="h-5 w-5" />
               </button>
             ) : (
-              <div className="h-9 w-9 rounded-lg bg-white/15 p-1 flex items-center justify-center border border-white/20 overflow-hidden">
+              <div className="h-10 w-10 rounded-xl bg-white p-1 flex items-center justify-center shadow-md border border-white/40 shrink-0 overflow-hidden">
                 <img
                   src="/logo-transparent.png"
                   alt="Logo ALSYFA"

@@ -19,7 +19,9 @@ import {
   Smartphone,
   ChevronRight,
   ShieldCheck,
-  Wallet
+  Wallet,
+  TrendingUp,
+  Building2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -29,8 +31,10 @@ export default function AdminLayout({ children }) {
   const navigate = useNavigate();
 
   const user = JSON.parse(localStorage.getItem('alsyifa_user') || '{"name":"Admin ALSYFA","role":"admin"}');
+  const isOwner = user.role === 'owner';
 
-  const menuItems = [
+  // Admin menu items
+  const adminMenuItems = [
     { label: 'Dashboard & KPI', path: '/admin', icon: LayoutDashboard },
     { label: 'Live GPS Tracking', path: '/admin/tracking', icon: MapPin },
     { label: 'Wilayah & Rute Kerja', path: '/admin/routes', icon: Route },
@@ -45,6 +49,16 @@ export default function AdminLayout({ children }) {
     { label: 'Monitoring Absensi', path: '/admin/attendance', icon: UserCheck },
     { label: 'Manajemen User & Sales', path: '/admin/users', icon: Users },
   ];
+
+  // Owner specific menu items (Sesuai Request Client)
+  const ownerMenuItems = [
+    { label: 'Dashboard Eksekutif', path: '/owner', icon: LayoutDashboard },
+    { label: 'Modal & Laba Global', path: '/owner#laba-global', icon: TrendingUp },
+    { label: 'Laporan Tiap Cabang', path: '/owner#cabang', icon: Building2 },
+    { label: 'Grafik Pertumbuhan', path: '/owner#pertumbuhan', icon: BarChart3 },
+  ];
+
+  const menuItems = isOwner ? ownerMenuItems : adminMenuItems;
 
   const handleLogout = () => {
     localStorage.removeItem('alsyifa_token');
@@ -72,18 +86,20 @@ export default function AdminLayout({ children }) {
         {/* Brand Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800 bg-slate-950/40">
           <div className="flex items-center gap-3">
-            <div className="h-11 w-11 rounded-xl bg-white/10 p-1 flex items-center justify-center shadow-md border border-white/10 overflow-hidden">
+            <div className="h-12 w-12 rounded-2xl bg-white p-1.5 flex items-center justify-center shadow-lg border border-slate-200/80 shrink-0 overflow-hidden">
               <img
                 src="/logo-transparent.png"
                 alt="Logo ALSYFA"
-                className="h-full w-full object-contain filter drop-shadow"
+                className="h-full w-full object-contain filter drop-shadow-sm hover:scale-105 transition-transform"
               />
             </div>
             <div>
               <h1 className="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
                 ALSYFA Sales
               </h1>
-              <p className="text-[11px] text-emerald-400 font-medium">Panel Supervisor & Pusat</p>
+              <p className="text-[11px] text-emerald-400 font-medium">
+                {isOwner ? 'Panel Eksekutif Owner' : 'Panel Supervisor & Pusat'}
+              </p>
             </div>
           </div>
           <button
@@ -97,37 +113,65 @@ export default function AdminLayout({ children }) {
         {/* Navigation Links */}
         <nav className="flex-1 overflow-y-auto px-4 py-4 space-y-1.5 custom-scrollbar">
           <div className="px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-            Manajemen Penjualan
+            {isOwner ? 'Laporan Khusus Owner' : 'Manajemen Penjualan'}
           </div>
 
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path;
+            const isExactPath = location.pathname === item.path || (item.path.includes('#') && location.pathname === '/owner');
             return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setSidebarOpen(false)}
+              <a
+                key={item.label}
+                href={item.path}
+                onClick={(e) => {
+                  setSidebarOpen(false);
+                  if (item.path.includes('#')) {
+                    const hash = item.path.split('#')[1];
+                    const elem = document.getElementById(hash);
+                    if (elem) {
+                      e.preventDefault();
+                      elem.scrollIntoView({ behavior: 'smooth' });
+                    }
+                  }
+                }}
                 className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all group ${
-                  isActive
+                  isExactPath && (!item.path.includes('#') || location.hash === `#${item.path.split('#')[1]}`)
                     ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/50'
                     : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-emerald-400'}`} />
+                  <Icon className={`h-4 w-4 ${isExactPath ? 'text-white' : 'text-slate-400 group-hover:text-emerald-400'}`} />
                   <span>{item.label}</span>
                 </div>
-                {isActive && <ChevronRight className="h-3.5 w-3.5 opacity-80" />}
-              </Link>
+                <ChevronRight className="h-3.5 w-3.5 opacity-80" />
+              </a>
             );
           })}
+
+          {/* Quick Access to other panels for dual roles or testing */}
+          {isOwner && (
+            <>
+              <div className="pt-4 px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Akses Operasional
+              </div>
+              <Link
+                to="/admin"
+                onClick={() => setSidebarOpen(false)}
+                className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800/80 hover:text-white transition-all group"
+              >
+                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                <span>Buka Panel Supervisor</span>
+              </Link>
+            </>
+          )}
 
           <div className="pt-4 px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
             Mode Lapangan
           </div>
           <Link
             to="/sales"
+            onClick={() => setSidebarOpen(false)}
             className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800/50 hover:bg-emerald-900/80 transition-colors"
           >
             <Smartphone className="h-4 w-4 text-emerald-400" />
@@ -145,7 +189,7 @@ export default function AdminLayout({ children }) {
               <div className="overflow-hidden">
                 <p className="text-xs font-bold text-white truncate max-w-[120px]">{user.name}</p>
                 <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 capitalize">
-                  <ShieldCheck className="h-3 w-3" /> {user.role || 'Admin'}
+                  <ShieldCheck className="h-3 w-3" /> {isOwner ? 'Owner ALSYFA' : user.role || 'Admin'}
                 </span>
               </div>
             </div>
@@ -173,7 +217,7 @@ export default function AdminLayout({ children }) {
             </button>
             <div className="flex items-center gap-2">
               <span className="hidden sm:inline-block px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-100">
-                Pusat Manajemen
+                {isOwner ? 'Eksekutif Owner' : 'Pusat Manajemen'}
               </span>
               <span className="text-xs text-slate-500 font-medium hidden md:inline-block">
                 PT ALSYFA Distribusi Indonesia (Snack Coklat)
