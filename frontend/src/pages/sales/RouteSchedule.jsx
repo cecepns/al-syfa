@@ -24,11 +24,12 @@ export default function RouteSchedule() {
     { key: 'kamis', label: 'Kamis' },
     { key: 'jumat', label: 'Jumat' },
     { key: 'sabtu', label: 'Sabtu' },
+    { key: 'minggu', label: 'Minggu' },
   ];
 
   const todayIndex = new Date().getDay();
   const dayNames = ['minggu', 'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu'];
-  const currentDayName = dayNames[todayIndex] === 'minggu' ? 'senin' : dayNames[todayIndex];
+  const currentDayName = dayNames[todayIndex];
 
   const [selectedDay, setSelectedDay] = useState(currentDayName);
   const [routes, setRoutes] = useState([]);
@@ -114,6 +115,16 @@ export default function RouteSchedule() {
               <span>Jalur kunjungan telah dioptimasi berurutan agar efisien.</span>
             </div>
           </div>
+
+          {/* Open Route in Google Maps */}
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`Kecamatan ${activeRoute.district_name}`)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all"
+          >
+            <MapPin className="h-4 w-4" /> Buka Wilayah Rute di Google Maps
+          </a>
 
           {/* Stores on this Route */}
           <div>

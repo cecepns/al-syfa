@@ -143,7 +143,7 @@ export default function Attendance() {
       <div className="bg-amber-50 rounded-2xl p-4 border border-amber-200 mb-4 flex items-start gap-3">
         <ShieldAlert className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
         <div className="text-xs text-amber-900">
-          <p className="font-bold">Ketentuan Absensi Sales Alsyifa:</p>
+          <p className="font-bold">Ketentuan Absensi Sales ALSYFA:</p>
           <ul className="list-disc list-inside mt-1 space-y-0.5 text-amber-800 text-[11px]">
             <li>Jam masuk kerja mulai pukul <strong>08.00 WIB</strong> di area rute kerja.</li>
             <li>

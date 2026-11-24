@@ -9,7 +9,13 @@ import {
   ExternalLink,
   Search,
   Filter,
-  CheckCircle2
+  CheckCircle2,
+  Navigation,
+  History,
+  FileText,
+  Clock,
+  CheckCircle,
+  CreditCard
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import MobileLayout from '../../components/layout/MobileLayout';
@@ -29,6 +35,13 @@ export default function CustomerList() {
   const [shopType, setShopType] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
+
+  // Purchase History Modal State
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [purchaseHistory, setPurchaseHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [updatingRetailId, setUpdatingRetailId] = useState(null);
 
   // Add Customer Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -159,6 +172,39 @@ export default function CustomerList() {
     }));
   };
 
+  const handleOpenHistory = async (customer) => {
+    setSelectedCustomer(customer);
+    setHistoryModalOpen(true);
+    setHistoryLoading(true);
+    try {
+      const res = await request.get(API_ENDPOINTS.CUSTOMERS.PURCHASE_HISTORY(customer.id));
+      setPurchaseHistory(res.data || []);
+    } catch (err) {
+      toast.error(err.message || 'Gagal memuat riwayat belanja');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleMarkRetailLunas = async (orderId) => {
+    setUpdatingRetailId(orderId);
+    try {
+      await request.put(API_ENDPOINTS.ORDERS.RETAIL_STATUS(orderId), {
+        notes: 'Pelunasan pesanan ritel langsung oleh sales'
+      });
+      toast.success('Pesanan ritel berhasil ditandai Lunas!');
+      if (selectedCustomer) {
+        const res = await request.get(API_ENDPOINTS.CUSTOMERS.PURCHASE_HISTORY(selectedCustomer.id));
+        setPurchaseHistory(res.data || []);
+        fetchCustomers();
+      }
+    } catch (err) {
+      toast.error(err.message || 'Gagal memperbarui status ritel');
+    } finally {
+      setUpdatingRetailId(null);
+    }
+  };
+
   const handleSubmitCustomer = async (e) => {
     e.preventDefault();
     if (!form.name || !form.phone || !form.address) {
@@ -277,9 +323,18 @@ export default function CustomerList() {
                 </div>
               </div>
 
+              {/* Hierarchy: KOTA – KECAMATAN – DESA */}
+              <div className="text-[11px] font-semibold text-slate-700 bg-slate-50 px-2.5 py-1.5 rounded-lg mb-2 border border-slate-100 flex flex-wrap items-center gap-1.5">
+                <span className="text-emerald-700 font-bold">{c.regency_name || 'Kota/Kabupaten'}</span>
+                <span className="text-slate-300">•</span>
+                <span>Kec. {c.district_name || '-'}</span>
+                <span className="text-slate-300">•</span>
+                <span className="text-slate-500">Desa/Kel. {c.village_name || '-'}</span>
+              </div>
+
               <p className="text-xs text-slate-600 flex items-start gap-1.5 mb-2.5">
                 <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
-                <span>{c.address} {c.district_name ? `(${c.district_name})` : ''}</span>
+                <span>{c.address}</span>
               </p>
 
               {/* Piutang / Balance Alert */}
@@ -290,24 +345,52 @@ export default function CustomerList() {
                 </div>
               )}
 
-              {/* Action Buttons */}
-              <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                {c.phone && (
+              {/* Action Buttons: 2 rows */}
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                <div className="flex items-center gap-2">
+                  {/* Google Maps direct link button */}
                   <a
-                    href={`https://wa.me/62${c.phone.replace(/^0/, '')}?text=${encodeURIComponent(`Halo ${c.name}, saya dari sales Alsyifa Herbal ingin mengkonfirmasi kebutuhan stok produk Anda.`)}`}
+                    href={
+                      c.latitude && c.longitude
+                        ? `https://www.google.com/maps/search/?api=1&query=${c.latitude},${c.longitude}`
+                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${c.name} ${c.address || ''} ${c.district_name || ''}`)}`
+                    }
                     target="_blank"
                     rel="noreferrer"
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 text-xs font-bold transition-colors"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold transition-colors border border-blue-100"
+                    title="Buka lokasi di Google Maps"
                   >
-                    <PhoneCall className="h-3.5 w-3.5" /> WhatsApp
+                    <Navigation className="h-3.5 w-3.5" /> Buka Maps
                   </a>
-                )}
-                <Link
-                  to={`/sales/visit/${c.id}`}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm shadow-emerald-200"
-                >
-                  <MapPin className="h-3.5 w-3.5" /> Kunjungi Toko
-                </Link>
+
+                  {/* Riwayat Belanja modal trigger */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenHistory(c)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-amber-50 text-amber-800 hover:bg-amber-100 text-xs font-bold transition-colors border border-amber-100"
+                  >
+                    <History className="h-3.5 w-3.5" /> Riwayat Belanja
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {c.phone && (
+                    <a
+                      href={`https://wa.me/62${c.phone.replace(/^0/, '')}?text=${encodeURIComponent(`Halo ${c.name}, saya dari sales ALSYFA Snack Coklat ingin mengkonfirmasi kebutuhan stok produk Anda.`)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 text-xs font-bold transition-colors"
+                    >
+                      <PhoneCall className="h-3.5 w-3.5" /> WhatsApp
+                    </a>
+                  )}
+                  <Link
+                    to={`/sales/visit/${c.id}`}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm shadow-emerald-200"
+                  >
+                    <MapPin className="h-3.5 w-3.5" /> Kunjungi Toko
+                  </Link>
+                </div>
               </div>
             </div>
           ))}
@@ -348,7 +431,7 @@ export default function CustomerList() {
               required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Contoh: Toko Herbal Barokah Jaya"
+              placeholder="Contoh: Toko Barokah Snack Jaya"
               className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 focus:border-emerald-500 focus:outline-none"
             />
           </div>
@@ -469,6 +552,133 @@ export default function CustomerList() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Riwayat Belanja Modal */}
+      <Modal
+        isOpen={historyModalOpen}
+        onClose={() => setHistoryModalOpen(false)}
+        title={`Riwayat Belanja - ${selectedCustomer?.name || 'Toko'}`}
+      >
+        <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/70 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800">{selectedCustomer?.name}</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                {selectedCustomer?.shop_type}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {selectedCustomer?.regency_name} • Kec. {selectedCustomer?.district_name} • Kel. {selectedCustomer?.village_name}
+            </p>
+          </div>
+
+          {historyLoading ? (
+            <div className="space-y-2 py-4">
+              {[1, 2].map((n) => (
+                <div key={n} className="bg-slate-50 p-3 rounded-xl animate-pulse">
+                  <div className="h-4 bg-slate-200 rounded w-1/3 mb-2" />
+                  <div className="h-3 bg-slate-100 rounded w-1/2" />
+                </div>
+              ))}
+            </div>
+          ) : purchaseHistory.length > 0 ? (
+            <div className="space-y-3">
+              {purchaseHistory.map((order) => (
+                <div
+                  key={order.id}
+                  className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm space-y-2.5"
+                >
+                  {/* Order Header */}
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <div>
+                      <p className="text-xs font-black text-slate-900 font-mono">
+                        {order.invoice_number}
+                      </p>
+                      <p className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                        <Clock className="h-3 w-3" /> Tanggal: {order.order_date?.substring(0, 10)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                          order.payment_status === 'lunas'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {order.payment_status === 'lunas' ? 'LUNAS' : 'BELUM LUNAS'}
+                      </span>
+                      <p className="text-[10px] text-slate-400 mt-0.5 capitalize">
+                        Metode: {order.payment_method}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Items List: Tanggal, Nama Produk, Qty, Nominal */}
+                  <div className="space-y-1.5 text-xs">
+                    {(order.items || []).map((it, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 border border-slate-100 text-[11px]"
+                      >
+                        <div className="overflow-hidden pr-2">
+                          <p className="font-semibold text-slate-800 truncate">
+                            {it.product_name}
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            {it.qty} {it.unit || 'pcs'} x Rp {Number(it.price).toLocaleString('id-ID')}
+                          </p>
+                        </div>
+                        <span className="font-extrabold text-slate-900 font-mono shrink-0">
+                          Rp {Number(it.total_price).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Order Total & Retail Lunas Action */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] text-slate-500">Total Belanja:</span>
+                      <p className="text-sm font-black text-emerald-700">
+                        Rp {Number(order.grand_total).toLocaleString('id-ID')}
+                      </p>
+                    </div>
+
+                    {/* Sales can mark LUNAS directly for retail orders */}
+                    {selectedCustomer?.shop_type === 'ritel' && order.payment_status !== 'lunas' && (
+                      <button
+                        type="button"
+                        onClick={() => handleMarkRetailLunas(order.id)}
+                        disabled={updatingRetailId === order.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold transition-all shadow-sm shadow-emerald-200 disabled:opacity-50"
+                      >
+                        <CheckCircle className="h-3.5 w-3.5" />
+                        <span>{updatingRetailId === order.id ? 'Memproses...' : 'Tandai Lunas'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6 text-xs text-slate-400">
+              <History className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+              <p>Belum ada riwayat transaksi belanja untuk toko ini.</p>
+            </div>
+          )}
+
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setHistoryModalOpen(false)}
+              className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
       </Modal>
     </MobileLayout>
   );

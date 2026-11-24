@@ -219,7 +219,7 @@ export default function TerritoryRoutes() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
           <h2 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
-            Pemetaan & Manajemen Wilayah Kerja (Senin – Sabtu)
+            Pemetaan & Manajemen Wilayah Kerja (Senin – Minggu)
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             Atur zona kluster kerja per sales mulai dari tingkat Kecamatan hingga Desa/Kelurahan via wilayah.id.
@@ -257,6 +257,7 @@ export default function TerritoryRoutes() {
             { key: 'kamis', label: 'Kamis' },
             { key: 'jumat', label: 'Jumat' },
             { key: 'sabtu', label: 'Sabtu' },
+            { key: 'minggu', label: 'Minggu' },
           ].map((d) => (
             <button
               key={d.key}
@@ -388,7 +389,7 @@ export default function TerritoryRoutes() {
 
             <div>
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Hari Rute (Senin - Sabtu) *
+                Hari Rute (Senin - Minggu) *
               </label>
               <AppSelect
                 value={form.day_of_week}
@@ -400,6 +401,7 @@ export default function TerritoryRoutes() {
                   { value: 'kamis', label: 'Kamis' },
                   { value: 'jumat', label: 'Jumat' },
                   { value: 'sabtu', label: 'Sabtu' },
+                  { value: 'minggu', label: 'Minggu' },
                 ]}
               />
             </div>

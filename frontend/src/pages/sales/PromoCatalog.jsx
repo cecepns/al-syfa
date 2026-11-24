@@ -31,7 +31,7 @@ export default function PromoCatalog() {
           <span className="text-[10px] font-bold uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-full">
             Katalog Promo Aktif
           </span>
-          <h3 className="text-base font-extrabold mt-1">Program Promo Alsyifa</h3>
+          <h3 className="text-base font-extrabold mt-1">Program Promo ALSYFA</h3>
           <p className="text-xs text-amber-100">Bantu closing penjualan dengan diskon spesial pusat</p>
         </div>
         <div className="h-12 w-12 rounded-xl bg-white/10 flex items-center justify-center font-bold text-2xl border border-white/20">

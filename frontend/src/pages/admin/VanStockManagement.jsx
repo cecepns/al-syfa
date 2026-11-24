@@ -188,7 +188,7 @@ export default function VanStockManagement() {
               <tr>
                 <th className="px-5 py-3">Tanggal</th>
                 <th className="px-5 py-3">Sales / Unit Kendaraan</th>
-                <th className="px-5 py-3">Produk Alsyifa</th>
+                <th className="px-5 py-3">Produk ALSYFA</th>
                 <th className="px-5 py-3 text-center">Stok Awal</th>
                 <th className="px-5 py-3 text-center">Terjual (Order)</th>
                 <th className="px-5 py-3 text-center">Sisa Stok Fisik</th>
@@ -271,7 +271,7 @@ export default function VanStockManagement() {
 
           <div>
             <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Produk Herbal Alsyifa *
+              Produk ALSYFA Snack *
             </label>
             <DebouncedAsyncSelect
               loadOptions={loadProductOptions}

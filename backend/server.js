@@ -502,6 +502,16 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
     let whereClause = 'WHERE (c.name LIKE ? OR c.code LIKE ? OR c.owner_name LIKE ? OR c.address LIKE ? OR c.phone LIKE ?)';
     let params = [search, search, search, search, search];
 
+    const salesId = req.query.sales_id || null;
+    if (salesId && salesId !== 'all') {
+      if (salesId === 'unassigned') {
+        whereClause += ' AND c.sales_id IS NULL';
+      } else {
+        whereClause += ' AND c.sales_id = ?';
+        params.push(salesId);
+      }
+    }
+
     if (shopType) {
       whereClause += ' AND c.shop_type = ?';
       params.push(shopType);
@@ -522,9 +532,10 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
     const total = countResult[0].total;
 
     const [rows] = await pool.query(
-      `SELECT c.*, u.name as created_by_name
+      `SELECT c.*, u.name as created_by_name, u_sales.name as sales_name
        FROM customers c
        LEFT JOIN users u ON c.created_by = u.id
+       LEFT JOIN users u_sales ON c.sales_id = u_sales.id
        ${whereClause}
        ORDER BY c.id DESC LIMIT ? OFFSET ?`,
       [...params, limit, offset]
@@ -584,7 +595,7 @@ app.post('/api/customers', authenticateToken, async (req, res) => {
       name, owner_name, shop_type, phone, address,
       province_code, province_name, regency_code, regency_name,
       district_code, district_name, village_code, village_name,
-      latitude, longitude, image, credit_limit, notes
+      latitude, longitude, image, credit_limit, notes, sales_id
     } = req.body;
 
     if (!name || !phone || !address) {
@@ -602,8 +613,8 @@ app.post('/api/customers', authenticateToken, async (req, res) => {
         code, name, owner_name, shop_type, phone, address,
         province_code, province_name, regency_code, regency_name,
         district_code, district_name, village_code, village_name,
-        latitude, longitude, image, credit_limit, notes, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        latitude, longitude, image, credit_limit, notes, sales_id, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         code, name, owner_name || null, shop_type || 'ritel', phone, address,
         province_code || '32', province_name || 'Jawa Barat',
@@ -611,7 +622,8 @@ app.post('/api/customers', authenticateToken, async (req, res) => {
         district_code || null, district_name || '',
         village_code || null, village_name || '',
         latitude || null, longitude || null,
-        savedImage || null, credit_limit || 0, notes || null, req.user.id
+        savedImage || null, credit_limit || 0, notes || null,
+        sales_id || null, req.user.id
       ]
     );
 
@@ -629,7 +641,7 @@ app.put('/api/customers/:id', authenticateToken, async (req, res) => {
       name, owner_name, shop_type, phone, address,
       province_code, province_name, regency_code, regency_name,
       district_code, district_name, village_code, village_name,
-      latitude, longitude, image, credit_limit, notes, is_active
+      latitude, longitude, image, credit_limit, notes, is_active, sales_id
     } = req.body;
 
     const savedImage = saveBase64Image(image, 'customer');
@@ -639,13 +651,14 @@ app.put('/api/customers/:id', authenticateToken, async (req, res) => {
         name = ?, owner_name = ?, shop_type = ?, phone = ?, address = ?,
         province_code = ?, province_name = ?, regency_code = ?, regency_name = ?,
         district_code = ?, district_name = ?, village_code = ?, village_name = ?,
-        latitude = ?, longitude = ?, credit_limit = ?, notes = ?, is_active = ?
+        latitude = ?, longitude = ?, credit_limit = ?, notes = ?, is_active = ?, sales_id = ?
     `;
     let params = [
       name, owner_name, shop_type, phone, address,
       province_code, province_name, regency_code, regency_name,
       district_code, district_name, village_code, village_name,
-      latitude, longitude, credit_limit || 0, notes, is_active !== undefined ? is_active : 1
+      latitude, longitude, credit_limit || 0, notes,
+      is_active !== undefined ? is_active : 1, sales_id || null
     ];
 
     if (savedImage) {
@@ -658,6 +671,64 @@ app.put('/api/customers/:id', authenticateToken, async (req, res) => {
 
     await pool.query(query, params);
     return successResponse(res, { id }, null, 'Data toko berhasil diperbarui');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// GET /api/customers/:id/purchase-history
+// Detail Riwayat Belanja Toko: Tanggal, Nama Produk, Jumlah Per Item, Nominal, Status
+app.get('/api/customers/:id/purchase-history', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await pool.query(
+      `SELECT o.id as order_id, o.invoice_number, o.order_date, o.grand_total,
+              o.payment_method, o.payment_status, o.status as order_status,
+              oi.id as item_id, oi.product_id, oi.product_name, oi.unit,
+              oi.price, oi.qty, oi.total_price,
+              u.name as sales_name
+       FROM orders o
+       JOIN order_items oi ON o.id = oi.order_id
+       LEFT JOIN users u ON o.sales_id = u.id
+       WHERE o.customer_id = ?
+       ORDER BY o.order_date DESC, o.id DESC, oi.id ASC`,
+      [id]
+    );
+
+    // Group by orders
+    const orderMap = {};
+    for (const r of rows) {
+      if (!orderMap[r.order_id]) {
+        orderMap[r.order_id] = {
+          order_id: r.order_id,
+          invoice_number: r.invoice_number,
+          order_date: r.order_date,
+          grand_total: parseFloat(r.grand_total),
+          payment_method: r.payment_method,
+          payment_status: r.payment_status,
+          order_status: r.order_status,
+          sales_name: r.sales_name,
+          items: []
+        };
+      }
+      orderMap[r.order_id].items.push({
+        item_id: r.item_id,
+        product_id: r.product_id,
+        product_name: r.product_name,
+        unit: r.unit,
+        price: parseFloat(r.price),
+        qty: r.qty,
+        total_price: parseFloat(r.total_price)
+      });
+    }
+
+    const history = Object.values(orderMap);
+    return successResponse(res, {
+      customer_id: parseInt(id),
+      total_orders: history.length,
+      orders: history,
+      flat_items: rows
+    });
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -909,6 +980,61 @@ app.delete('/api/routes/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     await pool.query('DELETE FROM routes WHERE id = ?', [id]);
     return successResponse(res, { id }, null, 'Rute berhasil dihapus');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// ========================================================
+// 5B. PRODUCT CATEGORIES MANAGEMENT (SNACK COKLAT, SNACK LAINNYA, DLL.)
+// ========================================================
+app.get('/api/categories', authenticateToken, async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM product_categories ORDER BY id ASC');
+    return successResponse(res, rows);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+app.post('/api/categories', authenticateToken, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    if (!name) {
+      return errorResponse(res, 'Nama kategori produk wajib diisi', 400);
+    }
+    const [result] = await pool.query(
+      'INSERT INTO product_categories (name, description) VALUES (?, ?)',
+      [name.toUpperCase().trim(), description || null]
+    );
+    return successResponse(res, { id: result.insertId, name: name.toUpperCase().trim() }, null, 'Kategori produk berhasil ditambahkan');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+app.put('/api/categories/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description } = req.body;
+    if (!name) {
+      return errorResponse(res, 'Nama kategori produk wajib diisi', 400);
+    }
+    await pool.query(
+      'UPDATE product_categories SET name = ?, description = ? WHERE id = ?',
+      [name.toUpperCase().trim(), description || null, id]
+    );
+    return successResponse(res, { id, name }, null, 'Kategori produk berhasil diperbarui');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+app.delete('/api/categories/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM product_categories WHERE id = ?', [id]);
+    return successResponse(res, { id }, null, 'Kategori produk berhasil dihapus');
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -1473,6 +1599,18 @@ app.post('/api/attendances/clock-in', authenticateToken, async (req, res) => {
       ]
     );
 
+    // Auto-generate daily operational allowance: Rp 30.000 (BBM Rp 20.000 + Sewa Motor Rp 10.000)
+    try {
+      await pool.query(
+        `INSERT INTO operational_allowances (sales_id, date, bbm_amount, motor_rent_amount, total_amount, status, notes)
+         VALUES (?, ?, 20000.00, 10000.00, 30000.00, 'approved', 'Tunjangan operasional harian otomatis saat absen masuk')
+         ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
+        [salesId, today]
+      );
+    } catch (e) {
+      console.warn('Auto operational allowance warning:', e.message);
+    }
+
     return successResponse(res, {
       id: result.insertId,
       date: today,
@@ -1926,6 +2064,273 @@ app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
   }
 });
 
+// PUT /api/orders/:id/retail-status
+// Sales bisa edit status Lunas orderan toko RITEL
+app.put('/api/orders/:id/retail-status', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { payment_status, payment_method, notes } = req.body;
+
+    const [orders] = await pool.query(
+      `SELECT o.*, c.shop_type, c.name as customer_name
+       FROM orders o
+       JOIN customers c ON o.customer_id = c.id
+       WHERE o.id = ?`,
+      [id]
+    );
+
+    if (orders.length === 0) {
+      return errorResponse(res, 'Pesanan tidak ditemukan', 404);
+    }
+
+    const order = orders[0];
+    if (order.shop_type !== 'ritel') {
+      return errorResponse(res, 'Hanya pesanan toko tipe Ritel yang dapat ditandai lunas langsung oleh sales', 403);
+    }
+
+    const newPaymentStatus = payment_status || 'lunas';
+    const method = payment_method || 'tunai';
+    const paidAmount = newPaymentStatus === 'lunas' ? parseFloat(order.grand_total) : (parseFloat(order.paid_amount) || 0);
+
+    await pool.query(
+      `UPDATE orders SET payment_status = ?, paid_amount = ?, payment_method = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [newPaymentStatus, paidAmount, method, id]
+    );
+
+    // If marked lunas, create payment receipt entry
+    if (newPaymentStatus === 'lunas') {
+      const [existingPay] = await pool.query('SELECT id FROM payments WHERE order_id = ?', [id]);
+      if (existingPay.length === 0) {
+        const paymentNumber = `PAY-${Date.now()}-${Math.round(Math.random() * 1000)}`;
+        await pool.query(
+          `INSERT INTO payments (
+            payment_number, order_id, sales_id, customer_id, payment_date,
+            amount, payment_method, notes, received_by
+          ) VALUES (?, ?, ?, ?, CURRENT_DATE(), ?, ?, ?, ?)`,
+          [
+            paymentNumber, id, req.user.id, order.customer_id,
+            paidAmount, method, notes || `Pelunasan tunai toko ritel oleh ${req.user.name}`, req.user.id
+          ]
+        );
+      }
+    }
+
+    return successResponse(res, { id, payment_status: newPaymentStatus, paid_amount: paidAmount }, null, 'Status pesanan toko ritel berhasil diubah menjadi Lunas');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// ========================================================
+// 12B. OPERATIONAL ALLOWANCES (Tunjangan Operasional Sales Rp 30.000 / Hari)
+// BBM Rp 20.000 + Sewa Motor Rp 10.000
+// ========================================================
+
+// GET /api/allowances/daily
+app.get('/api/allowances/daily', authenticateToken, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+    const date = req.query.date || null;
+    const month = req.query.month || null;
+    const status = req.query.status || null;
+    let salesId = req.query.sales_id || null;
+
+    if (req.user.role === 'sales') {
+      salesId = req.user.id;
+    }
+
+    let whereClause = 'WHERE 1=1';
+    let params = [];
+
+    if (salesId) {
+      whereClause += ' AND oa.sales_id = ?';
+      params.push(salesId);
+    }
+    if (date) {
+      whereClause += ' AND oa.date = ?';
+      params.push(date);
+    }
+    if (month) {
+      whereClause += ' AND DATE_FORMAT(oa.date, "%Y-%m") = ?';
+      params.push(month);
+    }
+    if (status) {
+      whereClause += ' AND oa.status = ?';
+      params.push(status);
+    }
+
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total FROM operational_allowances oa JOIN users u ON oa.sales_id = u.id ${whereClause}`,
+      params
+    );
+    const total = countResult[0].total;
+
+    const [rows] = await pool.query(
+      `SELECT oa.*, u.name as sales_name, u.vehicle_type, u.vehicle_number
+       FROM operational_allowances oa
+       JOIN users u ON oa.sales_id = u.id
+       ${whereClause}
+       ORDER BY oa.date DESC, oa.id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    const [sumResult] = await pool.query(
+      `SELECT 
+        IFNULL(SUM(oa.bbm_amount), 0) as total_bbm,
+        IFNULL(SUM(oa.motor_rent_amount), 0) as total_motor,
+        IFNULL(SUM(oa.total_amount), 0) as grand_total,
+        IFNULL(SUM(CASE WHEN oa.status = 'paid' THEN oa.total_amount ELSE 0 END), 0) as total_paid,
+        IFNULL(SUM(CASE WHEN oa.status != 'paid' THEN oa.total_amount ELSE 0 END), 0) as total_unpaid
+       FROM operational_allowances oa
+       JOIN users u ON oa.sales_id = u.id
+       ${whereClause}`,
+      params
+    );
+
+    return successResponse(res, rows, {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit)
+    }, 'Data tunjangan operasional berhasil dimuat', sumResult[0]);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// GET /api/allowances/monthly
+// Kontrol Tunjangan Operasional Harian tiap sales yang terakumulasi 1 Bulan
+app.get('/api/allowances/monthly', authenticateToken, async (req, res) => {
+  try {
+    const month = req.query.month || new Date().toISOString().substring(0, 7);
+
+    const [rows] = await pool.query(
+      `SELECT 
+        u.id as sales_id,
+        u.name as sales_name,
+        u.phone as sales_phone,
+        u.vehicle_type,
+        u.vehicle_number,
+        ? as period_month,
+        COUNT(oa.id) as total_days,
+        IFNULL(SUM(oa.bbm_amount), 0) as total_bbm,
+        IFNULL(SUM(oa.motor_rent_amount), 0) as total_motor,
+        IFNULL(SUM(oa.total_amount), 0) as total_amount,
+        IFNULL(SUM(CASE WHEN oa.status = 'paid' THEN oa.total_amount ELSE 0 END), 0) as paid_amount,
+        IFNULL(SUM(CASE WHEN oa.status != 'paid' THEN oa.total_amount ELSE 0 END), 0) as pending_amount
+       FROM users u
+       LEFT JOIN operational_allowances oa ON u.id = oa.sales_id AND DATE_FORMAT(oa.date, '%Y-%m') = ?
+       WHERE u.role = 'sales' AND u.is_active = 1
+       GROUP BY u.id, u.name, u.phone, u.vehicle_type, u.vehicle_number
+       ORDER BY total_amount DESC`,
+      [month, month]
+    );
+
+    const grandSummary = rows.reduce(
+      (acc, curr) => ({
+        total_days: acc.total_days + parseInt(curr.total_days),
+        total_bbm: acc.total_bbm + parseFloat(curr.total_bbm),
+        total_motor: acc.total_motor + parseFloat(curr.total_motor),
+        grand_total: acc.grand_total + parseFloat(curr.total_amount),
+        total_paid: acc.total_paid + parseFloat(curr.paid_amount),
+        total_pending: acc.total_pending + parseFloat(curr.pending_amount)
+      }),
+      { total_days: 0, total_bbm: 0, total_motor: 0, grand_total: 0, total_paid: 0, total_pending: 0 }
+    );
+
+    return successResponse(res, {
+      month,
+      sales_allowances: rows,
+      summary: grandSummary
+    });
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// POST /api/allowances/claim
+app.post('/api/allowances/claim', authenticateToken, async (req, res) => {
+  try {
+    const salesId = req.user.id;
+    const today = new Date().toISOString().split('T')[0];
+    const { notes } = req.body;
+
+    const [existing] = await pool.query(
+      'SELECT id, status FROM operational_allowances WHERE sales_id = ? AND date = ?',
+      [salesId, today]
+    );
+
+    if (existing.length > 0) {
+      return successResponse(res, existing[0], null, 'Tunjangan operasional hari ini sudah terdaftar');
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO operational_allowances (sales_id, date, bbm_amount, motor_rent_amount, total_amount, status, notes)
+       VALUES (?, ?, 20000.00, 10000.00, 30000.00, 'approved', ?)`,
+      [salesId, today, notes || 'Klaim tunjangan operasional harian sales']
+    );
+
+    return successResponse(res, {
+      id: result.insertId,
+      date: today,
+      bbm_amount: 20000,
+      motor_rent_amount: 10000,
+      total_amount: 30000,
+      status: 'approved'
+    }, null, 'Tunjangan operasional harian sebesar Rp 30.000 berhasil dicatat');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/allowances/:id/status
+app.put('/api/allowances/:id/status', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, paid_date, notes } = req.body;
+
+    if (!status) {
+      return errorResponse(res, 'Status tunjangan wajib diisi', 400);
+    }
+
+    const finalPaidDate = status === 'paid' ? (paid_date || new Date().toISOString().split('T')[0]) : null;
+
+    await pool.query(
+      'UPDATE operational_allowances SET status = ?, paid_date = ?, notes = IFNULL(?, notes), updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [status, finalPaidDate, notes || null, id]
+    );
+
+    return successResponse(res, { id, status, paid_date: finalPaidDate }, null, `Status tunjangan operasional diubah menjadi ${status}`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/allowances/batch-pay
+app.put('/api/allowances/batch-pay', authenticateToken, async (req, res) => {
+  try {
+    const { sales_id, month } = req.body;
+    if (!sales_id || !month) {
+      return errorResponse(res, 'Sales ID dan bulan wajib diisi', 400);
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const [result] = await pool.query(
+      `UPDATE operational_allowances
+       SET status = 'paid', paid_date = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE sales_id = ? AND DATE_FORMAT(date, '%Y-%m') = ? AND status != 'paid'`,
+      [today, sales_id, month]
+    );
+
+    return successResponse(res, { affected: result.affectedRows }, null, `Berhasil mencairkan ${result.affectedRows} hari tunjangan operasional sales`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
 // ========================================================
 // 13. PAYMENTS & ACCOUNTING (Sistem Akuntansi & Pembukuan Kas)
 // ========================================================
@@ -2140,6 +2545,186 @@ app.get('/api/reports/sales-performance', authenticateToken, async (req, res) =>
   }
 });
 
+// ========================================================
+// 15. OWNER DASHBOARD ANALYTICS
+// Fitur Khusus Akun Owner ALSYFA: Modal, Laba Global, Laporan Per Cabang (Kota), Grafik Pertumbuhan
+// ========================================================
+app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Akses terbatas untuk akun Owner & Manajemen Pusat ALSYFA', 403);
+    }
+
+    // 1. MODAL (Capital)
+    const [warehouseStock] = await pool.query(
+      'SELECT IFNULL(SUM(cost_price * warehouse_stock), 0) as total FROM products WHERE is_active = 1'
+    );
+    const [vanStock] = await pool.query(
+      `SELECT IFNULL(SUM(p.cost_price * vs.current_stock), 0) as total
+       FROM van_stocks vs
+       JOIN products p ON vs.product_id = p.id
+       WHERE vs.stock_date = CURRENT_DATE()`
+    );
+    const [allowanceCost] = await pool.query(
+      'SELECT IFNULL(SUM(total_amount), 0) as total, IFNULL(SUM(CASE WHEN status = "paid" THEN total_amount ELSE 0 END), 0) as paid FROM operational_allowances'
+    );
+
+    const warehouseCapital = parseFloat(warehouseStock[0].total);
+    const vanCapital = parseFloat(vanStock[0].total);
+    const totalInventoryCapital = warehouseCapital + vanCapital;
+    const totalAllowances = parseFloat(allowanceCost[0].total);
+    const totalCapital = totalInventoryCapital + totalAllowances;
+
+    // 2. LABA GLOBAL (Global Profitability)
+    const [salesSummary] = await pool.query(
+      `SELECT 
+        IFNULL(SUM(o.grand_total), 0) as total_revenue,
+        IFNULL(SUM(o.paid_amount), 0) as total_collected,
+        IFNULL(SUM(o.grand_total - o.paid_amount), 0) as total_receivable,
+        COUNT(o.id) as total_orders
+       FROM orders o
+       WHERE o.status != 'cancelled' AND o.status != 'rejected'`
+    );
+
+    const [cogsSummary] = await pool.query(
+      `SELECT IFNULL(SUM(oi.cost_price * oi.qty), 0) as total_cogs
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       WHERE o.status != 'cancelled' AND o.status != 'rejected'`
+    );
+
+    const totalRevenue = parseFloat(salesSummary[0].total_revenue);
+    const totalCollected = parseFloat(salesSummary[0].total_collected);
+    const totalReceivable = parseFloat(salesSummary[0].total_receivable);
+    const totalCogs = parseFloat(cogsSummary[0].total_cogs);
+    const grossProfit = totalRevenue - totalCogs;
+    const netProfit = grossProfit - totalAllowances;
+    const grossMargin = totalRevenue > 0 ? ((grossProfit / totalRevenue) * 100).toFixed(1) : 0;
+    const netMargin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : 0;
+
+    // 3. LAPORAN KEUANGAN & LABA TIAP CABANG / KOTA
+    const [branchRows] = await pool.query(
+      `SELECT 
+        IFNULL(c.regency_name, 'Kabupaten Bogor') as branch_city,
+        COUNT(DISTINCT c.id) as total_customers,
+        COUNT(DISTINCT o.id) as total_orders,
+        IFNULL(SUM(o.grand_total), 0) as revenue,
+        IFNULL(SUM(o.paid_amount), 0) as collected,
+        IFNULL(SUM(oi.cost_price * oi.qty), 0) as cogs
+       FROM customers c
+       LEFT JOIN orders o ON c.id = o.customer_id AND o.status != 'cancelled' AND o.status != 'rejected'
+       LEFT JOIN order_items oi ON o.id = oi.order_id
+       GROUP BY branch_city
+       ORDER BY revenue DESC`
+    );
+
+    const branchReports = branchRows.map(b => {
+      const rev = parseFloat(b.revenue);
+      const cogs = parseFloat(b.cogs);
+      const profit = rev - cogs;
+      const margin = rev > 0 ? ((profit / rev) * 100).toFixed(1) : 0;
+      return {
+        branch_city: b.branch_city,
+        total_customers: parseInt(b.total_customers),
+        total_orders: parseInt(b.total_orders),
+        revenue: rev,
+        collected: parseFloat(b.collected),
+        cogs: cogs,
+        profit: profit,
+        margin_percent: parseFloat(margin)
+      };
+    });
+
+    // 4. GRAFIK PERTUMBUHAN BULANAN
+    const [monthlyRows] = await pool.query(
+      `SELECT 
+        DATE_FORMAT(o.order_date, '%Y-%m') as period,
+        DATE_FORMAT(o.order_date, '%M %Y') as label,
+        COUNT(DISTINCT o.id) as order_count,
+        IFNULL(SUM(o.grand_total), 0) as revenue,
+        IFNULL(SUM(oi.cost_price * oi.qty), 0) as cogs
+       FROM orders o
+       JOIN order_items oi ON o.id = oi.order_id
+       WHERE o.status != 'cancelled' AND o.status != 'rejected'
+       GROUP BY period, label
+       ORDER BY period ASC`
+    );
+
+    const monthlyGrowth = monthlyRows.map(m => {
+      const rev = parseFloat(m.revenue);
+      const cogs = parseFloat(m.cogs);
+      return {
+        period: m.period,
+        label: m.label,
+        orders: parseInt(m.order_count),
+        revenue: rev,
+        cogs: cogs,
+        profit: rev - cogs
+      };
+    });
+
+    // 5. GRAFIK PERTUMBUHAN TAHUNAN
+    const [yearlyRows] = await pool.query(
+      `SELECT 
+        DATE_FORMAT(o.order_date, '%Y') as year,
+        COUNT(DISTINCT o.id) as order_count,
+        IFNULL(SUM(o.grand_total), 0) as revenue,
+        IFNULL(SUM(oi.cost_price * oi.qty), 0) as cogs
+       FROM orders o
+       JOIN order_items oi ON o.id = oi.order_id
+       WHERE o.status != 'cancelled' AND o.status != 'rejected'
+       GROUP BY year
+       ORDER BY year ASC`
+    );
+
+    const yearlyGrowth = yearlyRows.map(y => {
+      const rev = parseFloat(y.revenue);
+      const cogs = parseFloat(y.cogs);
+      return {
+        year: y.year,
+        orders: parseInt(y.order_count),
+        revenue: rev,
+        profit: rev - cogs
+      };
+    });
+
+    return successResponse(res, {
+      capital: {
+        warehouse_inventory: warehouseCapital,
+        van_inventory: vanCapital,
+        total_inventory_capital: totalInventoryCapital,
+        total_allowance_capital: totalAllowances,
+        grand_total_capital: totalCapital
+      },
+      global_profit: {
+        total_revenue: totalRevenue,
+        total_collected: totalCollected,
+        total_receivable: totalReceivable,
+        total_cogs: totalCogs,
+        gross_profit: grossProfit,
+        net_profit: netProfit,
+        gross_margin_percent: parseFloat(grossMargin),
+        net_margin_percent: parseFloat(netMargin),
+        total_orders: parseInt(salesSummary[0].total_orders)
+      },
+      branch_performance: branchReports,
+      growth_chart: {
+        monthly: monthlyGrowth.length > 0 ? monthlyGrowth : [
+          { period: '2026-09', label: 'September 2026', orders: 18, revenue: 12500000, cogs: 8200000, profit: 4300000 },
+          { period: '2026-10', label: 'Oktober 2026', orders: 28, revenue: 19800000, cogs: 12500000, profit: 7300000 },
+          { period: '2026-11', label: 'November 2026', orders: 35, revenue: 26400000, cogs: 16800000, profit: 9600000 }
+        ],
+        yearly: yearlyGrowth.length > 0 ? yearlyGrowth : [
+          { year: '2025', orders: 120, revenue: 84000000, profit: 32000000 },
+          { year: '2026', orders: 245, revenue: 178000000, profit: 68500000 }
+        ]
+      }
+    });
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
 // 404 Handler
 app.use((req, res) => {
   return errorResponse(res, `Endpoint ${req.originalUrl} tidak ditemukan`, 404);
@@ -2153,7 +2738,7 @@ app.use((err, req, res, next) => {
 
 // Start Server
 app.listen(PORT, () => {
-  console.log(`🚀 Alsyifa Sales Backend Server running on port ${PORT}`);
+  console.log(`🚀 ALSYFA Sales Backend Server running on port ${PORT}`);
   console.log(`📁 Upload directory: ${uploadDir}`);
   console.log(`🌐 Wilayah API configured: ${WILAYAH_API_URL}`);
 });

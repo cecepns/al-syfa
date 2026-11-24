@@ -278,7 +278,7 @@ export default function Promotions() {
               required
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="Contoh: Promo Berkah Awal Pekan Herbal"
+              placeholder="Contoh: Promo Berkah Awal Pekan ALSYFA"
               className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800"
             />
           </div>

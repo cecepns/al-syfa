@@ -241,7 +241,7 @@ export default function OrderCapture() {
         {/* Product Catalog Grid (Adding Items) */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
           <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-            <Package className="h-4 w-4 text-blue-600" /> Pilih Produk Alsyifa Herbal
+            <Package className="h-4 w-4 text-blue-600" /> Pilih Produk ALSYFA Snack Coklat
           </h4>
 
           <div className="space-y-2 max-h-56 overflow-y-auto pr-1">

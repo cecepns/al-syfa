@@ -12,12 +12,21 @@ import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([
+    { id: 1, name: 'SNACK COKLAT' },
+    { id: 2, name: 'SNACK LAINNYA' },
+  ]);
   const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
+
+  // Category Master Modal State
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [categorySubmitting, setCategorySubmitting] = useState(false);
 
   // Form Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -26,10 +35,10 @@ export default function Products() {
   const [form, setForm] = useState({
     code: '',
     name: '',
-    category: 'Madu Herbal',
-    unit: 'botol',
-    cost_price: 50000,
-    price: 75000,
+    category: 'SNACK COKLAT',
+    unit: 'pack',
+    cost_price: 10000,
+    price: 15000,
     warehouse_stock: 100,
     description: ''
   });
@@ -39,8 +48,23 @@ export default function Products() {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  useEffect(() => {
     fetchProducts();
   }, [page, limit, search, category]);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await request.get(API_ENDPOINTS.CATEGORIES.LIST);
+      if (res.data && res.data.length > 0) {
+        setCategories(res.data);
+      }
+    } catch (err) {
+      console.warn('Gagal memuat kategori:', err);
+    }
+  };
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -60,16 +84,42 @@ export default function Products() {
     }
   };
 
+  const handleCreateCategory = async (e) => {
+    e.preventDefault();
+    if (!newCategoryName.trim()) return;
+    setCategorySubmitting(true);
+    try {
+      await request.post(API_ENDPOINTS.CATEGORIES.CREATE, { name: newCategoryName.trim() });
+      toast.success('Kategori baru berhasil ditambahkan');
+      setNewCategoryName('');
+      fetchCategories();
+    } catch (err) {
+      toast.error(err.message || 'Gagal menambahkan kategori');
+    } finally {
+      setCategorySubmitting(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id) => {
+    try {
+      await request.del(API_ENDPOINTS.CATEGORIES.DELETE(id));
+      toast.success('Kategori berhasil dihapus');
+      fetchCategories();
+    } catch (err) {
+      toast.error(err.message || 'Gagal menghapus kategori');
+    }
+  };
+
   const handleOpenCreate = () => {
     setEditId(null);
-    const code = `PRD-${String(Date.now()).slice(-3)}`;
+    const code = `SNK-${String(Date.now()).slice(-3)}`;
     setForm({
       code,
       name: '',
-      category: 'Madu Herbal',
-      unit: 'botol',
-      cost_price: 50000,
-      price: 75000,
+      category: categories[0]?.name || 'SNACK COKLAT',
+      unit: 'pack',
+      cost_price: 10000,
+      price: 15000,
       warehouse_stock: 100,
       description: '',
     });
@@ -133,20 +183,30 @@ export default function Products() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
           <h2 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
-            Katalog Produk Alsyifa Herbal
+            Katalog Produk ALSYFA Snack Coklat
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Kelola master data produk, harga jual standar, dan ketersediaan stok gudang pusat.
+            Kelola master data produk snack coklat, harga jual standar, dan ketersediaan stok gudang pusat.
           </p>
         </div>
 
-        <button
-          onClick={handleOpenCreate}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-200 transition-all"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Tambah Produk Baru</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setCategoryModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-sm transition-all"
+          >
+            <Layers className="h-4 w-4 text-emerald-600" />
+            <span>Master Kategori</span>
+          </button>
+          <button
+            onClick={handleOpenCreate}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-200 transition-all"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Tambah Produk</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -158,25 +218,38 @@ export default function Products() {
               setSearch(val);
               setPage(1);
             }}
-            placeholder="Cari nama produk, kode..."
+            placeholder="Cari nama produk snack, kode..."
           />
         </div>
 
         <div className="flex gap-1.5 overflow-x-auto w-full sm:w-auto text-xs pb-1 sm:pb-0">
-          {['', 'Madu Herbal', 'Herbal Imunitas', 'Minyak Sehat', 'Suplemen Alami', 'Madu Anak', 'Teh Herbal'].map((cat) => (
+          <button
+            onClick={() => {
+              setCategory('');
+              setPage(1);
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-colors whitespace-nowrap ${
+              category === ''
+                ? 'bg-slate-900 text-white'
+                : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            Semua Kategori
+          </button>
+          {categories.map((cat) => (
             <button
-              key={cat}
+              key={cat.id || cat.name}
               onClick={() => {
-                setCategory(cat);
+                setCategory(cat.name);
                 setPage(1);
               }}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-colors whitespace-nowrap ${
-                category === cat
+              className={`px-3 py-1.5 rounded-lg font-bold transition-colors whitespace-nowrap uppercase ${
+                category === cat.name
                   ? 'bg-slate-900 text-white'
                   : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
               }`}
             >
-              {cat || 'Semua Kategori'}
+              {cat.name}
             </button>
           ))}
         </div>
@@ -294,7 +367,7 @@ export default function Products() {
       <Modal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={editId ? 'Edit Data Produk Herbal' : 'Tambah Produk Baru'}
+        title={editId ? 'Edit Data Produk Snack Coklat' : 'Tambah Produk Snack Baru'}
       >
         <form onSubmit={handleSubmitForm} className="space-y-3.5 text-xs">
           <div className="grid grid-cols-2 gap-3">
@@ -317,14 +390,7 @@ export default function Products() {
               <AppSelect
                 value={form.category}
                 onChange={(val) => setForm({ ...form, category: val })}
-                options={[
-                  { value: 'Madu Herbal', label: 'Madu Herbal' },
-                  { value: 'Herbal Imunitas', label: 'Herbal Imunitas' },
-                  { value: 'Minyak Sehat', label: 'Minyak Sehat' },
-                  { value: 'Suplemen Alami', label: 'Suplemen Alami' },
-                  { value: 'Madu Anak', label: 'Madu Anak' },
-                  { value: 'Teh Herbal', label: 'Teh Herbal' },
-                ]}
+                options={categories.map((c) => ({ value: c.name, label: c.name }))}
               />
             </div>
           </div>
@@ -352,13 +418,13 @@ export default function Products() {
                 required
                 value={form.unit}
                 onChange={(e) => setForm({ ...form, unit: e.target.value })}
-                placeholder="botol, dus, kotak"
+                placeholder="pack, pcs, box, karton"
                 className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800"
               />
             </div>
             <div>
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Harga Modal (Rp)
+                Harga Modal (HPP Rp)
               </label>
               <input
                 type="number"
@@ -421,6 +487,62 @@ export default function Products() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Category Master Modal */}
+      <Modal
+        isOpen={categoryModalOpen}
+        onClose={() => setCategoryModalOpen(false)}
+        title="Master Kategori Produk ALSYFA"
+      >
+        <div className="space-y-4 text-xs">
+          <form onSubmit={handleCreateCategory} className="flex gap-2">
+            <input
+              type="text"
+              required
+              placeholder="Nama kategori baru (cth: SNACK WAFER)..."
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              className="flex-1 rounded-xl border border-slate-200 p-2.5 uppercase font-medium focus:border-emerald-500 focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={categorySubmitting}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-all disabled:opacity-50"
+            >
+              Tambah
+            </button>
+          </form>
+
+          <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50">
+            {categories.map((c) => (
+              <div key={c.id || c.name} className="flex items-center justify-between p-3 bg-white">
+                <div className="flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-emerald-600" />
+                  <span className="font-bold text-slate-800 uppercase">{c.name}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteCategory(c.id)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  title="Hapus Kategori"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setCategoryModalOpen(false)}
+              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl text-slate-700"
+            >
+              Selesai
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* Delete Confirm */}

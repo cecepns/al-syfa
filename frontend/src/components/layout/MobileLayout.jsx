@@ -21,10 +21,10 @@ export default function MobileLayout({ children, title, showBack = false }) {
 
   const navItems = [
     { label: 'Beranda', path: '/sales', icon: Home },
-    { label: 'Rute Hari Ini', path: '/sales/rute', icon: Route },
-    { label: 'Toko / Outlet', path: '/sales/customers', icon: Store },
-    { label: 'Order Baru', path: '/sales/order', icon: ShoppingCart },
-    { label: 'Stok Mobil', path: '/sales/van-stock', icon: Truck },
+    { label: 'Rute', path: '/sales/rute', icon: Route },
+    { label: 'Toko', path: '/sales/customers', icon: Store },
+    { label: 'Order', path: '/sales/order', icon: ShoppingCart },
+    { label: 'Stok', path: '/sales/van-stock', icon: Truck },
   ];
 
   const handleLogout = () => {
@@ -52,14 +52,14 @@ export default function MobileLayout({ children, title, showBack = false }) {
               <div className="h-9 w-9 rounded-lg bg-white/15 p-1 flex items-center justify-center border border-white/20 overflow-hidden">
                 <img
                   src="/logo-transparent.png"
-                  alt="Logo Alsyifa"
+                  alt="Logo ALSYFA"
                   className="h-full w-full object-contain"
                 />
               </div>
             )}
             <div>
               <h1 className="text-sm font-bold tracking-tight text-white leading-tight">
-                {title || 'Alsyifa Sales Mobile'}
+                {title || 'ALSYFA Sales Mobile'}
               </h1>
               <p className="text-[10px] text-emerald-200">
                 {user.vehicle_number ? `${user.name} (${user.vehicle_number})` : user.name}

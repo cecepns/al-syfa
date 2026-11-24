@@ -49,6 +49,7 @@ export const API_ENDPOINTS = {
   CUSTOMERS: {
     LIST: "/customers",
     DETAIL: (id) => `/customers/${id}`,
+    PURCHASE_HISTORY: (id) => `/customers/${id}/purchase-history`,
     CREATE: "/customers",
     UPDATE: (id) => `/customers/${id}`,
     DELETE: (id) => `/customers/${id}`,
@@ -61,6 +62,13 @@ export const API_ENDPOINTS = {
     CREATE: "/routes",
     UPDATE: (id) => `/routes/${id}`,
     DELETE: (id) => `/routes/${id}`,
+  },
+
+  CATEGORIES: {
+    LIST: "/categories",
+    CREATE: "/categories",
+    UPDATE: (id) => `/categories/${id}`,
+    DELETE: (id) => `/categories/${id}`,
   },
 
   PRODUCTS: {
@@ -109,7 +117,16 @@ export const API_ENDPOINTS = {
     DETAIL: (id) => `/orders/${id}`,
     CREATE: "/orders",
     UPDATE_STATUS: (id) => `/orders/${id}/status`,
+    RETAIL_STATUS: (id) => `/orders/${id}/retail-status`,
     DELETE: (id) => `/orders/${id}`,
+  },
+
+  ALLOWANCES: {
+    DAILY: "/allowances/daily",
+    MONTHLY: "/allowances/monthly",
+    CLAIM: "/allowances/claim",
+    UPDATE_STATUS: (id) => `/allowances/${id}/status`,
+    BATCH_PAY: "/allowances/batch-pay",
   },
 
   PAYMENTS: {
@@ -121,5 +138,9 @@ export const API_ENDPOINTS = {
   DASHBOARD: {
     STATS: "/dashboard/stats",
     SALES_PERFORMANCE: "/reports/sales-performance",
+  },
+
+  OWNER: {
+    ANALYTICS: "/owner/analytics",
   },
 };

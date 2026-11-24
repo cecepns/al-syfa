@@ -14,6 +14,7 @@ import VisitCheckIn from './pages/sales/VisitCheckIn';
 import OrderCapture from './pages/sales/OrderCapture';
 import VanStock from './pages/sales/VanStock';
 import PromoCatalog from './pages/sales/PromoCatalog';
+import SalesAllowances from './pages/sales/SalesAllowances';
 
 // Admin / Supervisor Pages
 import Dashboard from './pages/admin/Dashboard';
@@ -28,6 +29,10 @@ import VanStockManagement from './pages/admin/VanStockManagement';
 import Promotions from './pages/admin/Promotions';
 import AttendanceMonitor from './pages/admin/AttendanceMonitor';
 import UsersManagement from './pages/admin/UsersManagement';
+import OperationalAllowancesAdmin from './pages/admin/OperationalAllowances';
+
+// Owner Pages
+import OwnerDashboard from './pages/owner/OwnerDashboard';
 
 // Route Guards
 function ProtectedRoute({ children, allowedRoles }) {
@@ -39,6 +44,7 @@ function ProtectedRoute({ children, allowedRoles }) {
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
+    if (user.role === 'owner') return <Navigate to="/owner" replace />;
     return <Navigate to={user.role === 'admin' || user.role === 'supervisor' ? '/admin' : '/sales'} replace />;
   }
 
@@ -51,6 +57,10 @@ function DefaultRedirect() {
 
   if (!token || !user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (user.role === 'owner') {
+    return <Navigate to="/owner" replace />;
   }
 
   if (user.role === 'admin' || user.role === 'supervisor') {
@@ -158,6 +168,14 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/sales/tunjangan"
+          element={
+            <ProtectedRoute>
+              <SalesAllowances />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Admin & Supervisor Dashboard Routes */}
         <Route
@@ -253,6 +271,24 @@ export default function App() {
           element={
             <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
               <UsersManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/allowances"
+          element={
+            <ProtectedRoute allowedRoles={['admin', 'supervisor', 'owner']}>
+              <OperationalAllowancesAdmin />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Dedicated Owner Route */}
+        <Route
+          path="/owner"
+          element={
+            <ProtectedRoute allowedRoles={['owner', 'admin']}>
+              <OwnerDashboard />
             </ProtectedRoute>
           }
         />

@@ -18,7 +18,8 @@ import {
   LogOut,
   Smartphone,
   ChevronRight,
-  ShieldCheck
+  ShieldCheck,
+  Wallet
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -27,17 +28,18 @@ export default function AdminLayout({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const user = JSON.parse(localStorage.getItem('alsyifa_user') || '{"name":"Admin Alsyifa","role":"admin"}');
+  const user = JSON.parse(localStorage.getItem('alsyifa_user') || '{"name":"Admin ALSYFA","role":"admin"}');
 
   const menuItems = [
     { label: 'Dashboard & KPI', path: '/admin', icon: LayoutDashboard },
     { label: 'Live GPS Tracking', path: '/admin/tracking', icon: MapPin },
     { label: 'Wilayah & Rute Kerja', path: '/admin/routes', icon: Route },
     { label: 'Persetujuan Pesanan', path: '/admin/orders', icon: ClipboardCheck },
+    { label: 'Tunjangan Operasional', path: '/admin/allowances', icon: Wallet },
     { label: 'Laporan & Hit Rate', path: '/admin/reports', icon: BarChart3 },
     { label: 'Sistem Pembukuan & Kas', path: '/admin/accounting', icon: BookOpenCheck },
     { label: 'Database Toko / Outlet', path: '/admin/customers', icon: Store },
-    { label: 'Katalog Produk Herbal', path: '/admin/products', icon: Package },
+    { label: 'Katalog Produk Snack', path: '/admin/products', icon: Package },
     { label: 'Stok Kendaraan (Van)', path: '/admin/van-stocks', icon: Truck },
     { label: 'Agenda Promo Bulanan', path: '/admin/promotions', icon: Sparkles },
     { label: 'Monitoring Absensi', path: '/admin/attendance', icon: UserCheck },
@@ -73,13 +75,13 @@ export default function AdminLayout({ children }) {
             <div className="h-11 w-11 rounded-xl bg-white/10 p-1 flex items-center justify-center shadow-md border border-white/10 overflow-hidden">
               <img
                 src="/logo-transparent.png"
-                alt="Logo Alsyifa"
+                alt="Logo ALSYFA"
                 className="h-full w-full object-contain filter drop-shadow"
               />
             </div>
             <div>
               <h1 className="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
-                Alsyifa Sales
+                ALSYFA Sales
               </h1>
               <p className="text-[11px] text-emerald-400 font-medium">Panel Supervisor & Pusat</p>
             </div>
@@ -174,7 +176,7 @@ export default function AdminLayout({ children }) {
                 Pusat Manajemen
               </span>
               <span className="text-xs text-slate-500 font-medium hidden md:inline-block">
-                PT Alsyifa Sehat Herbal Indonesia
+                PT ALSYFA Distribusi Indonesia (Snack Coklat)
               </span>
             </div>
           </div>

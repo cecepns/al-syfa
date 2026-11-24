@@ -26,7 +26,9 @@ export default function Login() {
         localStorage.setItem('alsyifa_user', JSON.stringify(res.data.user));
         toast.success(`Selamat datang, ${res.data.user.name}!`);
 
-        if (res.data.user.role === 'admin' || res.data.user.role === 'supervisor') {
+        if (res.data.user.role === 'owner') {
+          navigate('/owner');
+        } else if (res.data.user.role === 'admin' || res.data.user.role === 'supervisor') {
           navigate('/admin');
         } else {
           navigate('/sales');
@@ -52,13 +54,13 @@ export default function Login() {
           <div className="flex justify-center mb-3">
             <img
               src="/logo-transparent.png"
-              alt="Logo Alsyifa Herbal"
+              alt="Logo ALSYFA"
               className="h-20 w-auto object-contain drop-shadow-md hover:scale-105 transition-transform"
             />
           </div>
-          <h2 className="text-2xl font-black text-slate-800 tracking-tight">ALSYIFA SALES</h2>
+          <h2 className="text-2xl font-black text-slate-800 tracking-tight">ALSYFA SALES</h2>
           <p className="text-xs text-slate-500 font-medium mt-1">
-            Sistem Manajemen Sales Lapangan & Distributor Herbal
+            Sistem Manajemen Sales Lapangan & Distributor Snack Coklat
           </p>
         </div>
 
@@ -124,6 +126,24 @@ export default function Login() {
             Pilihan Cepat Akun Demo (Password: password123)
           </p>
           <div className="grid grid-cols-2 gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => handleQuickLogin('owner')}
+              className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 col-span-2 ${
+                username === 'owner'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-900 font-bold'
+                  : 'border-slate-200 bg-slate-50 text-slate-800 hover:bg-slate-100'
+              }`}
+            >
+              <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg shrink-0">
+                <Shield className="h-4 w-4" />
+              </div>
+              <div className="overflow-hidden">
+                <p className="truncate font-black text-slate-900">Bapak H. Alamsyah (Owner ALSYFA)</p>
+                <p className="text-[10px] text-emerald-700 font-semibold">Dashboard Keuangan Eksekutif</p>
+              </div>
+            </button>
+
             <button
               type="button"
               onClick={() => handleQuickLogin('sales2')}

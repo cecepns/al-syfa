@@ -22,10 +22,12 @@ import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
+  const [salesList, setSalesList] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [shopType, setShopType] = useState('');
+  const [salesFilter, setSalesFilter] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
 
@@ -35,6 +37,7 @@ export default function Customers() {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     name: '',
+    sales_id: '',
     owner_name: '',
     shop_type: 'ritel',
     phone: '',
@@ -63,11 +66,21 @@ export default function Customers() {
 
   useEffect(() => {
     fetchCustomers();
-  }, [page, limit, search, shopType]);
+  }, [page, limit, search, shopType, salesFilter]);
 
   useEffect(() => {
+    fetchSales();
     loadDistricts('32.01'); // Kab Bogor
   }, []);
+
+  const fetchSales = async () => {
+    try {
+      const res = await request.get(API_ENDPOINTS.USERS.LIST, { role: 'sales', limit: 100 });
+      setSalesList(res.data || []);
+    } catch (e) {
+      console.warn(e);
+    }
+  };
 
   const fetchCustomers = async () => {
     setLoading(true);
@@ -77,6 +90,7 @@ export default function Customers() {
         limit,
         search,
         shop_type: shopType || undefined,
+        sales_id: salesFilter || undefined,
       });
       setCustomers(res.data || []);
       setPagination(res.pagination);
@@ -130,6 +144,7 @@ export default function Customers() {
     setEditId(null);
     setForm({
       name: '',
+      sales_id: '',
       owner_name: '',
       shop_type: 'ritel',
       phone: '',
@@ -154,6 +169,7 @@ export default function Customers() {
     setEditId(c.id);
     setForm({
       name: c.name,
+      sales_id: c.sales_id ? String(c.sales_id) : '',
       owner_name: c.owner_name || '',
       shop_type: c.shop_type,
       phone: c.phone,
@@ -236,8 +252,8 @@ export default function Customers() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="w-full sm:w-80">
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex flex-col lg:flex-row items-center justify-between gap-3">
+        <div className="w-full lg:w-72">
           <SearchInput
             value={search}
             onChange={(val) => {
@@ -248,7 +264,22 @@ export default function Customers() {
           />
         </div>
 
-        <div className="flex gap-1.5 overflow-x-auto w-full sm:w-auto text-xs pb-1 sm:pb-0">
+        {/* Sales Filter Selector (Semua Toko / Per Sales) */}
+        <div className="w-full lg:w-64">
+          <AppSelect
+            value={salesFilter}
+            onChange={(val) => {
+              setSalesFilter(val);
+              setPage(1);
+            }}
+            options={[
+              { value: '', label: 'Semua Toko (Semua Sales)' },
+              ...salesList.map((s) => ({ value: String(s.id), label: `Sales: ${s.name}` })),
+            ]}
+          />
+        </div>
+
+        <div className="flex gap-1.5 overflow-x-auto w-full lg:w-auto text-xs pb-1 lg:pb-0">
           {[
             { key: '', label: 'Semua Tipe' },
             { key: 'ritel', label: 'Ritel' },
@@ -282,8 +313,9 @@ export default function Customers() {
               <tr>
                 <th className="px-5 py-3">Kode / Toko</th>
                 <th className="px-5 py-3">Tipe</th>
+                <th className="px-5 py-3">Sales PJ</th>
                 <th className="px-5 py-3">Pemilik & Kontak</th>
-                <th className="px-5 py-3">Wilayah (Kecamatan / Desa)</th>
+                <th className="px-5 py-3">Wilayah (Kota – Kec – Desa)</th>
                 <th className="px-5 py-3 text-right">Saldo Piutang</th>
                 <th className="px-5 py-3 text-right">Aksi</th>
               </tr>
@@ -291,7 +323,7 @@ export default function Customers() {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-slate-400">
+                  <td colSpan={7} className="px-5 py-8 text-center text-slate-400">
                     Memuat data toko...
                   </td>
                 </tr>
@@ -327,6 +359,11 @@ export default function Customers() {
                       </span>
                     </td>
                     <td className="px-5 py-3.5">
+                      <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-100">
+                        {c.sales_name || 'Semua Toko'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
                       <p className="font-semibold text-slate-800">{c.owner_name || '-'}</p>
                       {c.phone && (
                         <a
@@ -340,8 +377,9 @@ export default function Customers() {
                       )}
                     </td>
                     <td className="px-5 py-3.5">
-                      <p className="font-semibold text-slate-800">{c.district_name || '-'}</p>
-                      <p className="text-[10px] text-slate-400">{c.village_name || '-'}</p>
+                      <p className="font-bold text-slate-900">{c.regency_name || 'Kabupaten Bogor'}</p>
+                      <p className="text-[11px] text-slate-600">Kec. {c.district_name || '-'}</p>
+                      <p className="text-[10px] text-slate-400">Desa {c.village_name || '-'}</p>
                     </td>
                     <td className="px-5 py-3.5 text-right font-black">
                       {Number(c.current_balance) > 0 ? (
@@ -375,8 +413,8 @@ export default function Customers() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-slate-400">
-                    Tidak ada toko yang sesuai pencarian.
+                  <td colSpan={7} className="px-5 py-8 text-center text-slate-400">
+                    Tidak ada toko yang sesuai pencarian atau filter sales.
                   </td>
                 </tr>
               )}
@@ -413,6 +451,20 @@ export default function Customers() {
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Sales Penanggung Jawab
+            </label>
+            <AppSelect
+              value={form.sales_id}
+              onChange={(val) => setForm({ ...form, sales_id: val })}
+              options={[
+                { value: '', label: 'Semua Sales (Umum / Belum Ditetapkan)' },
+                ...salesList.map((s) => ({ value: String(s.id), label: `${s.name} (${s.vehicle_type})` })),
+              ]}
             />
           </div>
 

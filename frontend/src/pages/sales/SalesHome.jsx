@@ -12,7 +12,10 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
-  PhoneCall
+  PhoneCall,
+  Wallet,
+  Fuel,
+  Bike
 } from 'lucide-react';
 import MobileLayout from '../../components/layout/MobileLayout';
 import { request } from '../../utils/request';
@@ -24,6 +27,7 @@ export default function SalesHome() {
   const [attendance, setAttendance] = useState(null);
   const [todayRoute, setTodayRoute] = useState(null);
   const [vanStockSummary, setVanStockSummary] = useState([]);
+  const [todayAllowance, setTodayAllowance] = useState(null);
   const [loading, setLoading] = useState(true);
   const geo = useGeolocation();
 
@@ -46,15 +50,19 @@ export default function SalesHome() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [attRes, routeRes, stockRes] = await Promise.all([
+      const todayStr = new Date().toISOString().substring(0, 10);
+      const [attRes, routeRes, stockRes, allowRes] = await Promise.all([
         request.get(API_ENDPOINTS.ATTENDANCES.TODAY).catch(() => ({ data: null })),
         request.get(API_ENDPOINTS.ROUTES.SALES_TODAY(user.id)).catch(() => ({ data: null })),
-        request.get(API_ENDPOINTS.VAN_STOCKS.CURRENT(user.id)).catch(() => ({ data: [] }))
+        request.get(API_ENDPOINTS.VAN_STOCKS.CURRENT(user.id)).catch(() => ({ data: [] })),
+        request.get(API_ENDPOINTS.ALLOWANCES.DAILY, { sales_id: user.id, date: todayStr }).catch(() => ({ data: [] }))
       ]);
 
       setAttendance(attRes.data);
       setTodayRoute(routeRes.data);
       setVanStockSummary(stockRes.data || []);
+      const allowances = allowRes.data || [];
+      setTodayAllowance(allowances.length > 0 ? allowances[0] : null);
     } catch (err) {
       console.error(err);
     } finally {
@@ -66,7 +74,7 @@ export default function SalesHome() {
   const totalStores = todayRoute?.customers?.length || 0;
 
   return (
-    <MobileLayout title="Alsyifa Mobile Sales">
+    <MobileLayout title="ALSYFA Mobile Sales">
       {/* Sales Identity Banner */}
       <div className="bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 rounded-2xl p-4 text-white shadow-lg shadow-emerald-700/20 mb-4">
         <div className="flex items-center justify-between mb-3">
@@ -109,6 +117,34 @@ export default function SalesHome() {
           </Link>
         </div>
       </div>
+
+      {/* Tunjangan Operasional Card (BBM + Sewa Motor = Rp 30.000/hari) */}
+      <Link
+        to="/sales/tunjangan"
+        className="block bg-gradient-to-r from-teal-700 via-emerald-700 to-emerald-800 rounded-2xl p-3.5 text-white shadow-md shadow-emerald-900/10 mb-4 hover:opacity-95 transition-all border border-emerald-600/30"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20">
+              <Wallet className="h-5 w-5 text-amber-300" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-white">Tunjangan Operasional</span>
+                <span className="text-[9px] bg-amber-400 text-slate-900 font-extrabold px-1.5 py-0.5 rounded-full">
+                  Rp 30.000/hari
+                </span>
+              </div>
+              <p className="text-[10px] text-emerald-200 mt-0.5">
+                BBM Rp 20.000 + Sewa Motor Rp 10.000 • {todayAllowance ? 'Tercatat Hari Ini' : 'Cek Status / Klaim'}
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] bg-white/20 hover:bg-white/30 text-white font-bold px-2 py-1 rounded-lg">
+            Rincian &rarr;
+          </span>
+        </div>
+      </Link>
 
       {/* Today Route & Territory Card */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-4">
@@ -166,7 +202,7 @@ export default function SalesHome() {
                   <div className="flex items-center gap-1.5 shrink-0">
                     {shop.phone && (
                       <a
-                        href={`https://wa.me/62${shop.phone.replace(/^0/, '')}?text=${encodeURIComponent(`Halo ${shop.name}, saya ${user.name} sales Alsyifa akan berkunjung hari ini.`)}`}
+                        href={`https://wa.me/62${shop.phone.replace(/^0/, '')}?text=${encodeURIComponent(`Halo ${shop.name}, saya ${user.name} sales ALSYFA Snack Coklat akan berkunjung hari ini.`)}`}
                         target="_blank"
                         rel="noreferrer"
                         className="p-1.5 rounded-lg bg-green-50 text-green-600 hover:bg-green-100"
@@ -226,7 +262,17 @@ export default function SalesHome() {
           <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
             <Truck className="h-5 w-5" />
           </div>
-          <span className="text-[11px] font-bold text-slate-700 leading-tight">Stok Mobil</span>
+          <span className="text-[11px] font-bold text-slate-700 leading-tight">Stok</span>
+        </Link>
+
+        <Link
+          to="/sales/tunjangan"
+          className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center text-center hover:border-emerald-200 transition-all group"
+        >
+          <div className="h-10 w-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+            <Wallet className="h-5 w-5" />
+          </div>
+          <span className="text-[11px] font-bold text-slate-700 leading-tight">Tunjangan</span>
         </Link>
 
         <Link
@@ -240,16 +286,6 @@ export default function SalesHome() {
         </Link>
 
         <Link
-          to="/sales/promo"
-          className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center text-center hover:border-emerald-200 transition-all group"
-        >
-          <div className="h-10 w-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <span className="text-[11px] font-bold text-slate-700 leading-tight">Promo Pusat</span>
-        </Link>
-
-        <Link
           to="/sales/rute"
           className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center text-center hover:border-emerald-200 transition-all group"
         >
@@ -260,14 +296,14 @@ export default function SalesHome() {
         </Link>
       </div>
 
-      {/* Van Stock Quick Alert */}
+      {/* Sisa Stok Quick Alert */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
         <div className="flex items-center justify-between mb-2">
           <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-            <Truck className="h-3.5 w-3.5 text-blue-600" /> Sisa Stok di Kendaraan
+            <Truck className="h-3.5 w-3.5 text-blue-600" /> Sisa Stok Produk
           </h4>
           <Link to="/sales/van-stock" className="text-xs font-bold text-blue-600 hover:underline">
-            Kelola
+            Kelola Stok
           </Link>
         </div>
 
