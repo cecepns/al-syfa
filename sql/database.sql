@@ -471,7 +471,7 @@ CREATE TABLE IF NOT EXISTS `sales_targets` (
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `unique_sales_month_week` (`sales_id`, `month`, `week_number`),
   FOREIGN KEY (`sales_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 19. City Targets (Target & Akumulasi Bulanan per Kategori Kota)
 CREATE TABLE IF NOT EXISTS `city_targets` (
@@ -485,7 +485,7 @@ CREATE TABLE IF NOT EXISTS `city_targets` (
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `unique_city_month` (`city_name`, `month`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 20. Daily Deposits (Setoran Harian Sales & Potongan Tunjangan Ops)
 CREATE TABLE IF NOT EXISTS `daily_deposits` (
@@ -505,4 +505,4 @@ CREATE TABLE IF NOT EXISTS `daily_deposits` (
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (`sales_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
