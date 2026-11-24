@@ -16,7 +16,7 @@ import Modal from '../../components/common/Modal';
 import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 
 export default function AttendanceMonitor() {
   const [attendances, setAttendances] = useState([]);
@@ -204,9 +204,13 @@ export default function AttendanceMonitor() {
                 </span>
                 {previewItem.clock_in_image ? (
                   <img
-                    src={previewItem.clock_in_image}
+                    src={getStorageUrl(previewItem.clock_in_image)}
                     alt="Selfie Masuk"
                     className="w-full h-44 object-cover rounded-lg border border-slate-200"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = '/logo-transparent.png';
+                    }}
                   />
                 ) : (
                   <div className="h-44 bg-slate-200 rounded-lg flex items-center justify-center text-slate-400">
@@ -225,9 +229,13 @@ export default function AttendanceMonitor() {
                 </span>
                 {previewItem.clock_out_image ? (
                   <img
-                    src={previewItem.clock_out_image}
+                    src={getStorageUrl(previewItem.clock_out_image)}
                     alt="Selfie Pulang"
                     className="w-full h-44 object-cover rounded-lg border border-slate-200"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = '/logo-transparent.png';
+                    }}
                   />
                 ) : (
                   <div className="h-44 bg-slate-100 rounded-lg flex flex-col items-center justify-center text-slate-400 p-2 text-center">

@@ -13,7 +13,7 @@ import toast from 'react-hot-toast';
 import MobileLayout from '../../components/layout/MobileLayout';
 import CameraCapture from '../../components/common/CameraCapture';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 import { useGeolocation } from '../../hooks/useGeolocation';
 
 export default function Attendance() {
@@ -234,18 +234,26 @@ export default function Attendance() {
             <div className="flex-1">
               <p className="text-[10px] text-slate-500 mb-1">Masuk ({attendance.clock_in_time?.substring(0, 5)})</p>
               <img
-                src={attendance.clock_in_image}
+                src={getStorageUrl(attendance.clock_in_image)}
                 alt="Selfie Masuk"
                 className="w-full h-24 object-cover rounded-xl border border-slate-200"
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = '/logo-transparent.png';
+                }}
               />
             </div>
             {attendance.clock_out_image && (
               <div className="flex-1">
                 <p className="text-[10px] text-slate-500 mb-1">Pulang ({attendance.clock_out_time?.substring(0, 5)})</p>
                 <img
-                  src={attendance.clock_out_image}
+                  src={getStorageUrl(attendance.clock_out_image)}
                   alt="Selfie Pulang"
                   className="w-full h-24 object-cover rounded-xl border border-slate-200"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = '/logo-transparent.png';
+                  }}
                 />
               </div>
             )}

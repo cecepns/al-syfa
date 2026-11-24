@@ -3,7 +3,28 @@
  * Rule: No hardcoded endpoints in components or pages
  */
 
+/**
+ * Helper: Resolve full storage / upload image URL using configured API base URL
+ */
+export const getStorageUrl = (path) => {
+  if (!path) return '';
+  // If already a data URI, full HTTP/HTTPS URL, or blob, return directly
+  if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:') || path.startsWith('blob:')) {
+    return path;
+  }
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const apiUrl = import.meta.env.VITE_API_URL || 'https://api.kingcreativestudio.my.id/al-syfa/api';
+  // Strip trailing /api or /api/ to resolve backend root domain
+  const baseUrl = apiUrl.replace(/\/api\/?$/, '');
+  return `${baseUrl}${cleanPath}`;
+};
+
 export const API_ENDPOINTS = {
+  STORAGE: {
+    FILE: (path) => getStorageUrl(path),
+    URL: (path) => getStorageUrl(path),
+  },
+
   AUTH: {
     LOGIN: "/auth/login",
     REGISTER: "/auth/register",

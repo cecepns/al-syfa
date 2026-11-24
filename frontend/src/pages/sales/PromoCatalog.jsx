@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sparkles, Calendar, Tag, Gift, CheckCircle2 } from 'lucide-react';
 import MobileLayout from '../../components/layout/MobileLayout';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 
 export default function PromoCatalog() {
   const [promotions, setPromotions] = useState([]);
@@ -48,6 +48,18 @@ export default function PromoCatalog() {
               key={promo.id}
               className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 overflow-hidden"
             >
+              {promo.banner_image && (
+                <div className="w-full h-32 mb-3 rounded-xl overflow-hidden bg-slate-100 border border-slate-200">
+                  <img
+                    src={getStorageUrl(promo.banner_image)}
+                    alt={promo.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 flex items-center gap-1">
                   <Tag className="h-3 w-3" /> {promo.code}

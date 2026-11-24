@@ -8,7 +8,7 @@ import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -209,8 +209,26 @@ export default function Products() {
                   <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-5 py-3.5 font-bold font-mono text-slate-400">{p.code}</td>
                     <td className="px-5 py-3.5">
-                      <strong className="font-bold text-slate-900 block text-xs">{p.name}</strong>
-                      <span className="text-[10px] text-slate-400 line-clamp-1">{p.description}</span>
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                          {p.image ? (
+                            <img
+                              src={getStorageUrl(p.image)}
+                              alt={p.name}
+                              className="h-full w-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <Package className="h-5 w-5 text-slate-400" />
+                          )}
+                        </div>
+                        <div>
+                          <strong className="font-bold text-slate-900 block text-xs">{p.name}</strong>
+                          <span className="text-[10px] text-slate-400 line-clamp-1">{p.description}</span>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-5 py-3.5">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">

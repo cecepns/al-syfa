@@ -21,7 +21,7 @@ import ReceiptModal from '../../components/common/ReceiptModal';
 import AppSelect from '../../components/common/AppSelect';
 import DebouncedAsyncSelect from '../../components/common/DebouncedAsyncSelect';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 
 export default function OrderCapture() {
   const [searchParams] = useSearchParams();
@@ -252,14 +252,30 @@ export default function OrderCapture() {
                   key={p.id}
                   className="flex items-center justify-between p-2 rounded-xl border border-slate-100 hover:bg-slate-50 text-xs"
                 >
-                  <div className="overflow-hidden pr-2">
-                    <p className="font-bold text-slate-800 truncate">{p.name}</p>
-                    <p className="text-[11px] text-emerald-600 font-semibold">
-                      Rp {Number(p.price).toLocaleString('id-ID')} / {p.unit}
-                    </p>
-                    <p className="text-[10px] text-slate-400">
-                      Stok Mobil: <span className="font-bold text-slate-600">{currentVanStock !== undefined ? `${currentVanStock} ${p.unit}` : 'Tersedia di Gudang'}</span>
-                    </p>
+                  <div className="flex items-center gap-2.5 overflow-hidden pr-2">
+                    <div className="h-10 w-10 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                      {p.image ? (
+                        <img
+                          src={getStorageUrl(p.image)}
+                          alt={p.name}
+                          className="h-full w-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <Package className="h-4 w-4 text-slate-400" />
+                      )}
+                    </div>
+                    <div className="overflow-hidden">
+                      <p className="font-bold text-slate-800 truncate">{p.name}</p>
+                      <p className="text-[11px] text-emerald-600 font-semibold">
+                        Rp {Number(p.price).toLocaleString('id-ID')} / {p.unit}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        Stok Mobil: <span className="font-bold text-slate-600">{currentVanStock !== undefined ? `${currentVanStock} ${p.unit}` : 'Tersedia di Gudang'}</span>
+                      </p>
+                    </div>
                   </div>
                   <button
                     type="button"

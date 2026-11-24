@@ -17,7 +17,7 @@ import MobileLayout from '../../components/layout/MobileLayout';
 import CameraCapture from '../../components/common/CameraCapture';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 import { useGeolocation } from '../../hooks/useGeolocation';
 
 export default function VisitCheckIn() {
@@ -193,6 +193,16 @@ export default function VisitCheckIn() {
             <p className="text-[11px] text-emerald-800">
               Lakukan interaksi, pengecekan stok display toko, dan catat pesanan pelanggan.
             </p>
+
+            {activeVisit.checkin_image && (
+              <div className="mt-2.5 h-32 rounded-xl overflow-hidden border border-emerald-300">
+                <img
+                  src={getStorageUrl(activeVisit.checkin_image)}
+                  alt="Foto Check-In"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
 
             <Link
               to={`/sales/order?customer_id=${customerId}&visit_id=${activeVisit.visit_id}`}

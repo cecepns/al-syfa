@@ -8,7 +8,7 @@ import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 
 export default function Promotions() {
   const [promotions, setPromotions] = useState([]);
@@ -188,8 +188,24 @@ export default function Promotions() {
                       {pr.code}
                     </td>
                     <td className="px-5 py-3.5">
-                      <strong className="font-bold text-slate-900 block text-xs">{pr.title}</strong>
-                      <span className="text-[10px] text-slate-500 line-clamp-1">{pr.description}</span>
+                      <div className="flex items-center gap-3">
+                        {pr.banner_image && (
+                          <div className="h-10 w-16 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0">
+                            <img
+                              src={getStorageUrl(pr.banner_image)}
+                              alt={pr.title}
+                              className="h-full w-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          </div>
+                        )}
+                        <div>
+                          <strong className="font-bold text-slate-900 block text-xs">{pr.title}</strong>
+                          <span className="text-[10px] text-slate-500 line-clamp-1">{pr.description}</span>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-5 py-3.5 font-black text-rose-600">
                       {pr.discount_type === 'percentage'

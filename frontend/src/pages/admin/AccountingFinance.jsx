@@ -18,7 +18,7 @@ import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 
 export default function AccountingFinance() {
   const [payments, setPayments] = useState([]);
@@ -29,6 +29,7 @@ export default function AccountingFinance() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
+  const [proofModalUrl, setProofModalUrl] = useState(null);
 
   // New Payment Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -235,7 +236,28 @@ export default function AccountingFinance() {
               ) : payments.length > 0 ? (
                 payments.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="px-5 py-3.5 font-bold font-mono text-slate-900">{p.payment_number}</td>
+                    <td className="px-5 py-3.5 font-bold font-mono text-slate-900">
+                      <div className="flex items-center gap-2">
+                        {p.proof_image && (
+                          <button
+                            type="button"
+                            onClick={() => setProofModalUrl(getStorageUrl(p.proof_image))}
+                            className="h-7 w-7 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center justify-center p-0.5 border border-emerald-200 shrink-0"
+                            title="Lihat Bukti Pembayaran"
+                          >
+                            <img
+                              src={getStorageUrl(p.proof_image)}
+                              alt="Bukti"
+                              className="h-full w-full object-cover rounded"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          </button>
+                        )}
+                        <span>{p.payment_number}</span>
+                      </div>
+                    </td>
                     <td className="px-5 py-3.5 text-slate-500">{p.payment_date}</td>
                     <td className="px-5 py-3.5 font-mono text-slate-600">{p.invoice_number}</td>
                     <td className="px-5 py-3.5 font-bold text-slate-800">{p.customer_name}</td>
@@ -274,6 +296,23 @@ export default function AccountingFinance() {
           />
         )}
       </div>
+
+      {/* Proof Preview Modal */}
+      <Modal
+        isOpen={!!proofModalUrl}
+        onClose={() => setProofModalUrl(null)}
+        title="Bukti Setoran / Pembayaran"
+      >
+        <div className="text-center p-2">
+          {proofModalUrl && (
+            <img
+              src={proofModalUrl}
+              alt="Bukti Setoran"
+              className="max-h-96 w-auto mx-auto rounded-xl shadow-md border border-slate-200"
+            />
+          )}
+        </div>
+      </Modal>
 
       {/* Input Setoran Modal */}
       <Modal

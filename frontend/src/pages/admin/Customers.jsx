@@ -18,7 +18,7 @@ import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
@@ -299,9 +299,27 @@ export default function Customers() {
                 customers.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-5 py-3.5">
-                      <span className="font-mono text-[10px] text-slate-400 block">{c.code}</span>
-                      <strong className="font-bold text-slate-900 text-xs block">{c.name}</strong>
-                      <span className="text-[11px] text-slate-500 truncate max-w-xs block">{c.address}</span>
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                          {c.image ? (
+                            <img
+                              src={getStorageUrl(c.image)}
+                              alt={c.name}
+                              className="h-full w-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <Store className="h-5 w-5 text-slate-400" />
+                          )}
+                        </div>
+                        <div>
+                          <span className="font-mono text-[10px] text-slate-400 block">{c.code}</span>
+                          <strong className="font-bold text-slate-900 text-xs block">{c.name}</strong>
+                          <span className="text-[11px] text-slate-500 truncate max-w-xs block">{c.address}</span>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-5 py-3.5">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-700">

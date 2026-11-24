@@ -21,7 +21,7 @@ import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 
 export default function UsersManagement() {
   const [users, setUsers] = useState([]);
@@ -243,14 +243,25 @@ export default function UsersManagement() {
                     <tr key={u.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-3">
-                          <div className={`h-9 w-9 rounded-xl flex items-center justify-center font-bold text-sm ${
+                          <div className={`h-9 w-9 rounded-xl flex items-center justify-center font-bold text-sm overflow-hidden shrink-0 ${
                             u.role === 'admin'
                               ? 'bg-purple-100 text-purple-700'
                               : u.role === 'supervisor'
                               ? 'bg-blue-100 text-blue-700'
                               : 'bg-emerald-100 text-emerald-700'
                           }`}>
-                            {u.name?.charAt(0)}
+                            {u.avatar ? (
+                              <img
+                                src={getStorageUrl(u.avatar)}
+                                alt={u.name}
+                                className="h-full w-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              u.name?.charAt(0)
+                            )}
                           </div>
                           <div>
                             <strong className="font-bold text-slate-900 block text-xs">

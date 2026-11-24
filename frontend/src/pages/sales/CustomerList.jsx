@@ -18,7 +18,7 @@ import Pagination from '../../components/common/Pagination';
 import Modal from '../../components/common/Modal';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
-import { API_ENDPOINTS } from '../../utils/endpoints';
+import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 import { useGeolocation } from '../../hooks/useGeolocation';
 
 export default function CustomerList() {
@@ -248,16 +248,32 @@ export default function CustomerList() {
               key={c.id}
               className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-emerald-200 transition-all"
             >
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                      {c.shop_type?.replace('_', ' ')}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">{c.code}</span>
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="flex items-start gap-3">
+                  <div className="h-11 w-11 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                    {c.image ? (
+                      <img
+                        src={getStorageUrl(c.image)}
+                        alt={c.name}
+                        className="h-full w-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <Store className="h-5 w-5 text-slate-400" />
+                    )}
                   </div>
-                  <h4 className="text-sm font-extrabold text-slate-800 mt-1">{c.name}</h4>
-                  <p className="text-[11px] text-slate-500 font-medium">Pemilik: {c.owner_name || '-'}</p>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                        {c.shop_type?.replace('_', ' ')}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">{c.code}</span>
+                    </div>
+                    <h4 className="text-sm font-extrabold text-slate-800 mt-0.5">{c.name}</h4>
+                    <p className="text-[11px] text-slate-500 font-medium">Pemilik: {c.owner_name || '-'}</p>
+                  </div>
                 </div>
               </div>
 

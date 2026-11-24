@@ -34,6 +34,7 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Serve static uploads
 app.use('/uploads', express.static(uploadDir));
+app.use('/api/uploads', express.static(uploadDir));
 
 // Multer Storage Configuration
 const storage = multer.diskStorage({
