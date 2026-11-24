@@ -132,6 +132,19 @@ ON DUPLICATE KEY UPDATE
   `price` = VALUES(`price`),
   `description` = VALUES(`description`);
 
+-- -----------------------------------------------------------------------
+-- 7. TABEL PENGATURAN MODAL KAS OWNER & SETTING PERUSAHAAN (company_settings)
+-- -----------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `company_settings` (
+  `setting_key` VARCHAR(50) PRIMARY KEY,
+  `setting_value` TEXT NOT NULL,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `company_settings` (`setting_key`, `setting_value`)
+VALUES ('additional_cash_capital', '0')
+ON DUPLICATE KEY UPDATE `setting_key` = `setting_key`;
+
 -- =======================================================================
 -- MIGRATION SELESAI DENGAN SUKSES
 -- =======================================================================

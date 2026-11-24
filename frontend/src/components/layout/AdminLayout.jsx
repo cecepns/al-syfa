@@ -21,7 +21,9 @@ import {
   ShieldCheck,
   Wallet,
   TrendingUp,
-  Building2
+  Building2,
+  DollarSign,
+  Target
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -36,6 +38,8 @@ export default function AdminLayout({ children }) {
   // Admin menu items
   const adminMenuItems = [
     { label: 'Dashboard & KPI', path: '/admin', icon: LayoutDashboard },
+    { label: 'Setoran Harian Sales', path: '/admin/deposits', icon: DollarSign },
+    { label: 'Target Mingguan Sales', path: '/admin/targets', icon: Target },
     { label: 'Live GPS Tracking', path: '/admin/tracking', icon: MapPin },
     { label: 'Wilayah & Rute Kerja', path: '/admin/routes', icon: Route },
     { label: 'Persetujuan Pesanan', path: '/admin/orders', icon: ClipboardCheck },
@@ -52,10 +56,10 @@ export default function AdminLayout({ children }) {
 
   // Owner specific menu items (Sesuai Request Client)
   const ownerMenuItems = [
-    { label: 'Dashboard Eksekutif', path: '/owner', icon: LayoutDashboard },
-    { label: 'Modal & Laba Global', path: '/owner#laba-global', icon: TrendingUp },
-    { label: 'Laporan Tiap Cabang', path: '/owner#cabang', icon: Building2 },
-    { label: 'Grafik Pertumbuhan', path: '/owner#pertumbuhan', icon: BarChart3 },
+    { label: 'Dashboard & Modal HPP', path: '/owner', icon: LayoutDashboard },
+    { label: 'Laba Cabang & Kota', path: '/owner/cabang', icon: Building2 },
+    { label: 'Target Bulanan Kota', path: '/owner/target-kota', icon: Target },
+    { label: 'Grafik Pertumbuhan', path: '/owner/pertumbuhan', icon: BarChart3 },
   ];
 
   const menuItems = isOwner ? ownerMenuItems : adminMenuItems;
@@ -118,34 +122,24 @@ export default function AdminLayout({ children }) {
 
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isExactPath = location.pathname === item.path || (item.path.includes('#') && location.pathname === '/owner');
+            const isActive = location.pathname === item.path;
             return (
-              <a
-                key={item.label}
-                href={item.path}
-                onClick={(e) => {
-                  setSidebarOpen(false);
-                  if (item.path.includes('#')) {
-                    const hash = item.path.split('#')[1];
-                    const elem = document.getElementById(hash);
-                    if (elem) {
-                      e.preventDefault();
-                      elem.scrollIntoView({ behavior: 'smooth' });
-                    }
-                  }
-                }}
+              <Link
+                key={item.path}
+                to={item.path}
+                onClick={() => setSidebarOpen(false)}
                 className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all group ${
-                  isExactPath && (!item.path.includes('#') || location.hash === `#${item.path.split('#')[1]}`)
+                  isActive
                     ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/50'
                     : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <Icon className={`h-4 w-4 ${isExactPath ? 'text-white' : 'text-slate-400 group-hover:text-emerald-400'}`} />
+                  <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-emerald-400'}`} />
                   <span>{item.label}</span>
                 </div>
                 <ChevronRight className="h-3.5 w-3.5 opacity-80" />
-              </a>
+              </Link>
             );
           })}
 

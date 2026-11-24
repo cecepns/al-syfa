@@ -47,20 +47,22 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-800 via-teal-900 to-slate-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 sm:p-8 border border-white/20 animate-in fade-in zoom-in-95 duration-300">
+    <div className="min-h-screen bg-slate-100/80 flex items-center justify-center p-4 sm:p-6">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/60 p-6 sm:p-8 border border-slate-200 animate-in fade-in zoom-in-95 duration-300">
         {/* Brand Header */}
         <div className="text-center mb-6">
           <div className="flex justify-center mb-3">
-            <img
-              src="/logo-transparent.png"
-              alt="Logo ALSYFA"
-              className="h-20 w-auto object-contain drop-shadow-md hover:scale-105 transition-transform"
-            />
+            <div className="h-20 w-20 rounded-2xl bg-slate-900 p-2 flex items-center justify-center shadow-md border border-slate-700/40">
+              <img
+                src="/logo-gold.png"
+                alt="Logo ALSYFA"
+                className="h-full w-full object-contain"
+              />
+            </div>
           </div>
           <h2 className="text-2xl font-black text-slate-800 tracking-tight">ALSYFA SALES</h2>
           <p className="text-xs text-slate-500 font-medium mt-1">
-            Sistem Manajemen Sales Lapangan & Distributor Snack Coklat
+            Sistem Manajemen Distribusi & Penjualan Snack Coklat
           </p>
         </div>
 

@@ -118,7 +118,25 @@ export const API_ENDPOINTS = {
     CREATE: "/orders",
     UPDATE_STATUS: (id) => `/orders/${id}/status`,
     RETAIL_STATUS: (id) => `/orders/${id}/retail-status`,
+    PAYMENT_STATUS: (id) => `/orders/${id}/payment-status`,
     DELETE: (id) => `/orders/${id}`,
+  },
+
+  TARGETS: {
+    LIST: "/targets",
+    MY_PROGRESS: "/targets/my-progress",
+    CREATE: "/targets",
+    BATCH: "/targets/batch",
+    CITIES: "/targets/cities",
+    CREATE_CITY: "/targets/cities",
+  },
+
+  DEPOSITS: {
+    LIST: "/deposits",
+    SALES_SUMMARY: "/deposits/sales-summary",
+    CREATE: "/deposits",
+    UPDATE_STATUS: (id) => `/deposits/${id}/status`,
+    DELETE: (id) => `/deposits/${id}`,
   },
 
   ALLOWANCES: {
@@ -142,5 +160,11 @@ export const API_ENDPOINTS = {
 
   OWNER: {
     ANALYTICS: "/owner/analytics",
+    PRODUCTS: "/owner/products",
+    UPDATE_HPP: (id) => `/owner/products/${id}/hpp`,
+    UPDATE_PRICING: (id) => `/products/${id}/pricing`,
+    UPDATE_CASH_CAPITAL: "/owner/capital/cash",
+    CITY_TARGETS: "/targets/cities",
+    CREATE_CITY_TARGET: "/targets/cities",
   },
 };

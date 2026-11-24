@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Plus, Edit2, Trash2, Tag, Layers } from 'lucide-react';
+import { Package, Plus, Edit2, Trash2, Tag, Layers, DollarSign } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
 import Modal from '../../components/common/Modal';
@@ -46,6 +46,36 @@ export default function Products() {
   // Delete Confirm State
   const [deleteId, setDeleteId] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+
+  // Quick Price Update State
+  const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [pricingProduct, setPricingProduct] = useState(null);
+  const [newSellingPrice, setNewSellingPrice] = useState('');
+  const [pricingSubmitting, setPricingSubmitting] = useState(false);
+
+  const handleOpenPricing = (p) => {
+    setPricingProduct(p);
+    setNewSellingPrice(p.price);
+    setPricingModalOpen(true);
+  };
+
+  const handleSavePricing = async (e) => {
+    e.preventDefault();
+    if (!pricingProduct || !newSellingPrice) return;
+    setPricingSubmitting(true);
+    try {
+      await request.put(API_ENDPOINTS.PRODUCTS.UPDATE_PRICING(pricingProduct.id), {
+        price: parseFloat(newSellingPrice),
+      });
+      toast.success(`Harga jual untuk "${pricingProduct.name}" berhasil diperbarui!`);
+      setPricingModalOpen(false);
+      fetchProducts();
+    } catch (err) {
+      toast.error(err.message || 'Gagal mengubah harga jual');
+    } finally {
+      setPricingSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     fetchCategories();
@@ -312,7 +342,14 @@ export default function Products() {
                       Rp {Number(p.cost_price).toLocaleString('id-ID')}
                     </td>
                     <td className="px-5 py-3.5 text-right font-black text-slate-900">
-                      Rp {Number(p.price).toLocaleString('id-ID')} / {p.unit}
+                      <button
+                        onClick={() => handleOpenPricing(p)}
+                        className="inline-flex items-center gap-1 font-black text-slate-900 hover:text-emerald-600 transition-colors group cursor-pointer"
+                        title="Klik untuk ubah harga jual"
+                      >
+                        <span>Rp {Number(p.price).toLocaleString('id-ID')} / {p.unit}</span>
+                        <Tag className="h-3 w-3 text-slate-400 group-hover:text-emerald-500" />
+                      </button>
                     </td>
                     <td className="px-5 py-3.5 text-center font-bold">
                       <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800">
@@ -321,9 +358,16 @@ export default function Products() {
                     </td>
                     <td className="px-5 py-3.5 text-right space-x-1.5 whitespace-nowrap">
                       <button
+                        onClick={() => handleOpenPricing(p)}
+                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50"
+                        title="Ubah Harga Jual"
+                      >
+                        <Tag className="h-3.5 w-3.5" />
+                      </button>
+                      <button
                         onClick={() => handleOpenEdit(p)}
                         className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50"
-                        title="Edit Produk"
+                        title="Edit Produk Lengkap"
                       >
                         <Edit2 className="h-3.5 w-3.5" />
                       </button>
@@ -543,6 +587,69 @@ export default function Products() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Modal Cepat Ubah Harga Jual */}
+      <Modal
+        isOpen={pricingModalOpen}
+        onClose={() => setPricingModalOpen(false)}
+        title={`Ubah Harga Jual - ${pricingProduct?.name || 'Produk'}`}
+      >
+        <form onSubmit={handleSavePricing} className="space-y-4 text-xs">
+          <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-emerald-900">
+            <p className="font-bold">Penyesuaian Harga Jual Admin</p>
+            <p className="text-[11px] text-emerald-700 mt-0.5">
+              Harga jual baru akan langsung terhubung ke seluruh sistem order sales dan supervisor.
+            </p>
+          </div>
+
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-1">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Kode & Nama:</span>
+              <span className="font-bold text-slate-800">{pricingProduct?.code} - {pricingProduct?.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Harga Pokok (HPP):</span>
+              <span className="font-bold text-slate-600 font-mono">Rp {Number(pricingProduct?.cost_price || 0).toLocaleString('id-ID')}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Harga Jual Saat Ini:</span>
+              <span className="font-bold text-slate-800 font-mono">Rp {Number(pricingProduct?.price || 0).toLocaleString('id-ID')} / {pricingProduct?.unit}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Harga Jual Baru (Rp) *
+            </label>
+            <input
+              type="number"
+              required
+              min="0"
+              value={newSellingPrice}
+              onChange={(e) => setNewSellingPrice(e.target.value)}
+              placeholder="Contoh: 16000"
+              className="w-full rounded-xl border border-slate-200 p-3 text-sm font-black font-mono text-emerald-700 focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setPricingModalOpen(false)}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={pricingSubmitting}
+              className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md shadow-emerald-200 disabled:opacity-50"
+            >
+              {pricingSubmitting ? 'Menyimpan...' : 'Perbarui Harga'}
+            </button>
+          </div>
+        </form>
       </Modal>
 
       {/* Delete Confirm */}

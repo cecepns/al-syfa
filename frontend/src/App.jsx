@@ -15,9 +15,12 @@ import OrderCapture from './pages/sales/OrderCapture';
 import VanStock from './pages/sales/VanStock';
 import PromoCatalog from './pages/sales/PromoCatalog';
 import SalesAllowances from './pages/sales/SalesAllowances';
+import SalesTargets from './pages/sales/SalesTargets';
 
 // Admin / Supervisor Pages
 import Dashboard from './pages/admin/Dashboard';
+import DailyDeposits from './pages/admin/DailyDeposits';
+import SalesTargetsAdmin from './pages/admin/SalesTargetsAdmin';
 import LiveTracking from './pages/admin/LiveTracking';
 import TerritoryRoutes from './pages/admin/TerritoryRoutes';
 import OrdersApproval from './pages/admin/OrdersApproval';
@@ -33,6 +36,9 @@ import OperationalAllowancesAdmin from './pages/admin/OperationalAllowances';
 
 // Owner Pages
 import OwnerDashboard from './pages/owner/OwnerDashboard';
+import OwnerBranchReport from './pages/owner/OwnerBranchReport';
+import OwnerGrowthAnalytics from './pages/owner/OwnerGrowthAnalytics';
+import OwnerCityTargets from './pages/owner/OwnerCityTargets';
 
 // Route Guards
 function ProtectedRoute({ children, allowedRoles }) {
@@ -176,6 +182,14 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/sales/target"
+          element={
+            <ProtectedRoute>
+              <SalesTargets />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Admin & Supervisor Dashboard Routes */}
         <Route
@@ -183,6 +197,22 @@ export default function App() {
           element={
             <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
               <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/deposits"
+          element={
+            <ProtectedRoute allowedRoles={['admin', 'supervisor', 'owner']}>
+              <DailyDeposits />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/targets"
+          element={
+            <ProtectedRoute allowedRoles={['admin', 'supervisor', 'owner']}>
+              <SalesTargetsAdmin />
             </ProtectedRoute>
           }
         />
@@ -283,12 +313,36 @@ export default function App() {
           }
         />
 
-        {/* Dedicated Owner Route */}
+        {/* Dedicated Owner Routes */}
         <Route
           path="/owner"
           element={
             <ProtectedRoute allowedRoles={['owner', 'admin']}>
               <OwnerDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/owner/cabang"
+          element={
+            <ProtectedRoute allowedRoles={['owner', 'admin']}>
+              <OwnerBranchReport />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/owner/target-kota"
+          element={
+            <ProtectedRoute allowedRoles={['owner', 'admin']}>
+              <OwnerCityTargets />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/owner/pertumbuhan"
+          element={
+            <ProtectedRoute allowedRoles={['owner', 'admin']}>
+              <OwnerGrowthAnalytics />
             </ProtectedRoute>
           }
         />

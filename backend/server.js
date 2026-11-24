@@ -368,6 +368,82 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// POST /api/auth/google (Login Sales dengan Akun Google)
+app.post('/api/auth/google', async (req, res) => {
+  try {
+    const { email, name, google_id, avatar } = req.body;
+    if (!email) {
+      return errorResponse(res, 'Email Google wajib disertakan', 400);
+    }
+
+    // Cari user berdasarkan email atau google_id
+    const [users] = await pool.query(
+      'SELECT * FROM users WHERE email = ? OR (google_id IS NOT NULL AND google_id = ?)',
+      [email, google_id || '']
+    );
+
+    let user = null;
+    if (users.length > 0) {
+      user = users[0];
+      // Hubungkan google_id jika belum ada
+      if (google_id && !user.google_id) {
+        await pool.query('UPDATE users SET google_id = ? WHERE id = ?', [google_id, user.id]);
+      }
+    } else {
+      // Buat akun sales baru otomatis dengan email Google
+      const baseUsername = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+      const uniqueUsername = `${baseUsername}_${Math.floor(Math.random() * 899 + 100)}`;
+      const [insertRes] = await pool.query(
+        `INSERT INTO users (name, username, email, password, role, google_id, avatar, is_active)
+         VALUES (?, ?, ?, ?, 'sales', ?, ?, 1)`,
+        [
+          name || email.split('@')[0],
+          uniqueUsername,
+          email,
+          '$2a$10$wN1qVd8N1qVd8N1qVd8N1eK6g9J6QhJk3k1e5y5r5w1qVd8N1qVd.',
+          google_id || `google_${Date.now()}`,
+          avatar || '/uploads/avatar-sales.png'
+        ]
+      );
+      const [newUsers] = await pool.query('SELECT * FROM users WHERE id = ?', [insertRes.insertId]);
+      user = newUsers[0];
+    }
+
+    if (!user.is_active) {
+      return errorResponse(res, 'Akun Anda dinonaktifkan oleh Administrator', 403);
+    }
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        name: user.name,
+        username: user.username,
+        email: user.email,
+        role: user.role
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    const userData = {
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      phone: user.phone,
+      avatar: user.avatar,
+      vehicle_type: user.vehicle_type,
+      vehicle_number: user.vehicle_number
+    };
+
+    return successResponse(res, { token, user: userData }, null, `Selamat datang, ${user.name}! Login Google berhasil.`);
+  } catch (err) {
+    console.error('Google login error:', err);
+    return errorResponse(res, err.message, 500);
+  }
+});
+
 // GET /api/auth/profile
 app.get('/api/auth/profile', authenticateToken, async (req, res) => {
   try {
@@ -2064,8 +2140,61 @@ app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
   }
 });
 
-// PUT /api/orders/:id/retail-status
-// Sales bisa edit status Lunas orderan toko RITEL
+// PUT /api/orders/:id/retail-status & /api/orders/:id/payment-status
+// Sales dan Admin bisa update status pembayaran tiap toko (Lunas / Belum Lunas) untuk semua jenis toko
+app.put('/api/orders/:id/payment-status', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { payment_status, payment_method, paid_amount, notes } = req.body;
+
+    const [orders] = await pool.query(
+      `SELECT o.*, c.name as customer_name, c.shop_type
+       FROM orders o
+       JOIN customers c ON o.customer_id = c.id
+       WHERE o.id = ?`,
+      [id]
+    );
+
+    if (orders.length === 0) {
+      return errorResponse(res, 'Pesanan tidak ditemukan', 404);
+    }
+
+    const order = orders[0];
+    const newPaymentStatus = payment_status || 'lunas';
+    const method = payment_method || order.payment_method || 'tunai';
+    const grandTotal = parseFloat(order.grand_total);
+    const newPaidAmount = newPaymentStatus === 'lunas' ? grandTotal : (paid_amount !== undefined ? parseFloat(paid_amount) : 0);
+
+    await pool.query(
+      `UPDATE orders SET payment_status = ?, paid_amount = ?, payment_method = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [newPaymentStatus, newPaidAmount, method, id]
+    );
+
+    // If marked lunas, create payment receipt entry if not exists
+    if (newPaymentStatus === 'lunas') {
+      const [existingPay] = await pool.query('SELECT id FROM payments WHERE order_id = ?', [id]);
+      if (existingPay.length === 0) {
+        const paymentNumber = `PAY-${Date.now()}-${Math.round(Math.random() * 1000)}`;
+        await pool.query(
+          `INSERT INTO payments (
+            payment_number, order_id, sales_id, customer_id, payment_date,
+            amount, payment_method, notes, received_by
+          ) VALUES (?, ?, ?, ?, CURRENT_DATE(), ?, ?, ?, ?)`,
+          [
+            paymentNumber, id, req.user.id, order.customer_id,
+            newPaidAmount, method, notes || `Pelunasan toko ${order.customer_name} oleh ${req.user.name}`, req.user.id
+          ]
+        );
+      }
+    }
+
+    return successResponse(res, { id, payment_status: newPaymentStatus, paid_amount: newPaidAmount }, null, `Status pembayaran berhasil diubah menjadi ${newPaymentStatus.toUpperCase()}`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// Alias retail-status to payment-status for backwards compatibility
 app.put('/api/orders/:id/retail-status', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -2084,10 +2213,6 @@ app.put('/api/orders/:id/retail-status', authenticateToken, async (req, res) => 
     }
 
     const order = orders[0];
-    if (order.shop_type !== 'ritel') {
-      return errorResponse(res, 'Hanya pesanan toko tipe Ritel yang dapat ditandai lunas langsung oleh sales', 403);
-    }
-
     const newPaymentStatus = payment_status || 'lunas';
     const method = payment_method || 'tunai';
     const paidAmount = newPaymentStatus === 'lunas' ? parseFloat(order.grand_total) : (parseFloat(order.paid_amount) || 0);
@@ -2097,7 +2222,6 @@ app.put('/api/orders/:id/retail-status', authenticateToken, async (req, res) => 
       [newPaymentStatus, paidAmount, method, id]
     );
 
-    // If marked lunas, create payment receipt entry
     if (newPaymentStatus === 'lunas') {
       const [existingPay] = await pool.query('SELECT id FROM payments WHERE order_id = ?', [id]);
       if (existingPay.length === 0) {
@@ -2109,13 +2233,13 @@ app.put('/api/orders/:id/retail-status', authenticateToken, async (req, res) => 
           ) VALUES (?, ?, ?, ?, CURRENT_DATE(), ?, ?, ?, ?)`,
           [
             paymentNumber, id, req.user.id, order.customer_id,
-            paidAmount, method, notes || `Pelunasan tunai toko ritel oleh ${req.user.name}`, req.user.id
+            paidAmount, method, notes || `Pelunasan tunai oleh ${req.user.name}`, req.user.id
           ]
         );
       }
     }
 
-    return successResponse(res, { id, payment_status: newPaymentStatus, paid_amount: paidAmount }, null, 'Status pesanan toko ritel berhasil diubah menjadi Lunas');
+    return successResponse(res, { id, payment_status: newPaymentStatus, paid_amount: paidAmount }, null, 'Status pesanan berhasil diubah menjadi Lunas');
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -2556,6 +2680,9 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
     }
 
     // 1. MODAL (Capital)
+    const [settingRows] = await pool.query('SELECT setting_value FROM company_settings WHERE setting_key = "additional_cash_capital"').catch(() => [[]]);
+    const additionalCashCapital = settingRows.length > 0 && settingRows[0].setting_value ? parseFloat(settingRows[0].setting_value) || 0 : 0;
+
     const [warehouseStock] = await pool.query(
       'SELECT IFNULL(SUM(cost_price * warehouse_stock), 0) as total FROM products WHERE is_active = 1'
     );
@@ -2573,7 +2700,7 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
     const vanCapital = parseFloat(vanStock[0].total);
     const totalInventoryCapital = warehouseCapital + vanCapital;
     const totalAllowances = parseFloat(allowanceCost[0].total);
-    const totalCapital = totalInventoryCapital + totalAllowances;
+    const totalCapital = totalInventoryCapital + totalAllowances + additionalCashCapital;
 
     // 2. LABA GLOBAL (Global Profitability)
     const [salesSummary] = await pool.query(
@@ -2688,12 +2815,22 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
       };
     });
 
+    const selectedCity = req.query.city || null;
+    let selectedCityData = null;
+    if (selectedCity && selectedCity !== 'all') {
+      const match = branchReports.find(b => b.branch_city.toLowerCase() === selectedCity.toLowerCase());
+      if (match) {
+        selectedCityData = match;
+      }
+    }
+
     return successResponse(res, {
       capital: {
         warehouse_inventory: warehouseCapital,
         van_inventory: vanCapital,
         total_inventory_capital: totalInventoryCapital,
         total_allowance_capital: totalAllowances,
+        additional_cash_capital: additionalCashCapital,
         grand_total_capital: totalCapital
       },
       global_profit: {
@@ -2707,6 +2844,9 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
         net_margin_percent: parseFloat(netMargin),
         total_orders: parseInt(salesSummary[0].total_orders)
       },
+      selected_city: selectedCity,
+      selected_city_data: selectedCityData,
+      available_cities: branchReports.map(b => b.branch_city),
       branch_performance: branchReports,
       growth_chart: {
         monthly: monthlyGrowth.length > 0 ? monthlyGrowth : [
@@ -2720,6 +2860,827 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
         ]
       }
     });
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// GET /api/owner/products (Detail Modal / HPP Produk untuk Owner)
+app.get('/api/owner/products', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Akses terbatas untuk Owner & Admin', 403);
+    }
+    const [products] = await pool.query(`
+      SELECT 
+        p.id, p.code, p.name, p.category, p.unit, p.cost_price, p.price,
+        p.warehouse_stock,
+        IFNULL((SELECT SUM(vs.current_stock) FROM van_stocks vs WHERE vs.product_id = p.id AND vs.stock_date = CURRENT_DATE()), 0) as van_stock,
+        (p.warehouse_stock + IFNULL((SELECT SUM(vs.current_stock) FROM van_stocks vs WHERE vs.product_id = p.id AND vs.stock_date = CURRENT_DATE()), 0)) as total_stock,
+        ((p.warehouse_stock + IFNULL((SELECT SUM(vs.current_stock) FROM van_stocks vs WHERE vs.product_id = p.id AND vs.stock_date = CURRENT_DATE()), 0)) * p.cost_price) as total_capital_value,
+        (p.price - p.cost_price) as unit_margin,
+        ROUND(CASE WHEN p.price > 0 THEN ((p.price - p.cost_price) / p.price) * 100 ELSE 0 END, 1) as margin_percent
+      FROM products p
+      WHERE p.is_active = 1
+      ORDER BY p.name ASC
+    `);
+    return successResponse(res, products);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/owner/products/:id/hpp (Owner mengubah Modal / HPP Produk)
+app.put('/api/owner/products/:id/hpp', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Akses terbatas untuk akun Owner & Admin', 403);
+    }
+    const { id } = req.params;
+    const { cost_price, update_orders } = req.body;
+    if (cost_price === undefined || cost_price === null || isNaN(cost_price) || Number(cost_price) < 0) {
+      return errorResponse(res, 'Nilai HPP / Modal tidak valid', 400);
+    }
+
+    const newHpp = parseFloat(cost_price);
+    await pool.query('UPDATE products SET cost_price = ? WHERE id = ?', [newHpp, id]);
+
+    if (update_orders) {
+      await pool.query('UPDATE order_items SET cost_price = ? WHERE product_id = ?', [newHpp, id]);
+    }
+
+    return successResponse(res, { id, cost_price: newHpp }, null, 'Harga Modal / HPP produk berhasil diperbarui oleh Owner');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// POST /api/owner/capital/cash (Owner menentukan Modal Kas / Cadangan Operasional)
+app.post('/api/owner/capital/cash', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Akses terbatas untuk akun Owner & Admin', 403);
+    }
+    const { amount } = req.body;
+    if (amount === undefined || isNaN(amount) || Number(amount) < 0) {
+      return errorResponse(res, 'Nominal modal kas tidak valid', 400);
+    }
+
+    const val = parseFloat(amount).toString();
+    await pool.query(
+      'INSERT INTO company_settings (setting_key, setting_value) VALUES ("additional_cash_capital", ?) ON DUPLICATE KEY UPDATE setting_value = ?',
+      [val, val]
+    );
+
+    return successResponse(res, { additional_cash_capital: parseFloat(val) }, null, 'Modal kas / cadangan operasional berhasil disimpan');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// ========================================================
+// REVISI FITUR: DAILY DEPOSITS & TUNJANGAN DEDUCTION
+// ========================================================
+
+// GET /api/deposits (List Setoran Harian Sales)
+app.get('/api/deposits', authenticateToken, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+    const { search, sales_id, date, month, status, method } = req.query;
+
+    let whereClause = 'WHERE 1=1';
+    let params = [];
+
+    if (req.user.role === 'sales') {
+      whereClause += ' AND dd.sales_id = ?';
+      params.push(req.user.id);
+    } else if (sales_id) {
+      whereClause += ' AND dd.sales_id = ?';
+      params.push(sales_id);
+    }
+
+    if (date) {
+      whereClause += ' AND dd.deposit_date = ?';
+      params.push(date);
+    }
+
+    if (month) {
+      whereClause += ' AND DATE_FORMAT(dd.deposit_date, "%Y-%m") = ?';
+      params.push(month);
+    }
+
+    if (status) {
+      whereClause += ' AND dd.status = ?';
+      params.push(status);
+    }
+
+    if (method) {
+      whereClause += ' AND dd.deposit_method = ?';
+      params.push(method);
+    }
+
+    if (search) {
+      whereClause += ' AND (dd.deposit_number LIKE ? OR u.name LIKE ? OR dd.notes LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total FROM daily_deposits dd JOIN users u ON dd.sales_id = u.id ${whereClause}`,
+      params
+    );
+    const total = countResult[0].total;
+
+    const [rows] = await pool.query(
+      `SELECT dd.*, u.name as sales_name, u.role as sales_role, u.vehicle_type, u.vehicle_number,
+              v.name as verifier_name
+       FROM daily_deposits dd
+       JOIN users u ON dd.sales_id = u.id
+       LEFT JOIN users v ON dd.verified_by = v.id
+       ${whereClause}
+       ORDER BY dd.deposit_date DESC, dd.id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    // Summary totals for currently filtered period
+    const [summaryRows] = await pool.query(
+      `SELECT 
+        IFNULL(SUM(dd.total_sales_amount), 0) as grand_total_sales,
+        IFNULL(SUM(dd.operational_allowance_deduction), 0) as grand_total_deduction,
+        IFNULL(SUM(dd.net_deposit_amount), 0) as grand_total_net,
+        COUNT(dd.id) as total_deposits
+       FROM daily_deposits dd
+       JOIN users u ON dd.sales_id = u.id
+       ${whereClause}`,
+      params
+    );
+
+    return successResponse(res, {
+      items: rows,
+      summary: summaryRows[0]
+    }, {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit)
+    });
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// GET /api/deposits/sales-summary (Kalkulasi Otomatis Penjualan & Saran Setoran)
+app.get('/api/deposits/sales-summary', authenticateToken, async (req, res) => {
+  try {
+    const salesId = req.query.sales_id || (req.user.role === 'sales' ? req.user.id : null);
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+
+    if (!salesId) {
+      return errorResponse(res, 'Sales ID diperlukan', 400);
+    }
+
+    // 1. Ambil data penjualan sales pada tanggal tersebut
+    const [salesOrders] = await pool.query(
+      `SELECT 
+        IFNULL(SUM(o.grand_total), 0) as total_sales,
+        IFNULL(SUM(o.paid_amount), 0) as total_collected,
+        COUNT(o.id) as total_orders
+       FROM orders o
+       WHERE o.sales_id = ? AND DATE(o.order_date) = ? AND o.status != 'cancelled' AND o.status != 'rejected'`,
+      [salesId, date]
+    );
+
+    // 2. Ambil total pack yang terjual
+    const [itemsSold] = await pool.query(
+      `SELECT 
+        IFNULL(SUM(oi.qty), 0) as total_pack
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       WHERE o.sales_id = ? AND DATE(o.order_date) = ? AND o.status != 'cancelled' AND o.status != 'rejected'`,
+      [salesId, date]
+    );
+
+    // 3. Ambil tunjangan operasional harian (standar Rp 30.000)
+    const [allowanceRows] = await pool.query(
+      `SELECT IFNULL(SUM(total_amount), 30000.00) as allowance_amount
+       FROM operational_allowances
+       WHERE sales_id = ? AND date = ?`,
+      [salesId, date]
+    );
+
+    const totalSales = parseFloat(salesOrders[0].total_sales || 0);
+    const totalCollected = parseFloat(salesOrders[0].total_collected || 0);
+    const totalPack = parseInt(itemsSold[0].total_pack || 0);
+    const totalDus = Math.floor(totalPack / 20);
+    const allowanceDeduction = parseFloat(allowanceRows[0]?.allowance_amount || 30000);
+    const netDepositRecommended = Math.max(0, totalSales - allowanceDeduction);
+
+    const [existingDeposit] = await pool.query(
+      `SELECT * FROM daily_deposits WHERE sales_id = ? AND deposit_date = ?`,
+      [salesId, date]
+    );
+
+    return successResponse(res, {
+      sales_id: parseInt(salesId),
+      date,
+      total_sales: totalSales,
+      total_collected: totalCollected,
+      total_pack: totalPack,
+      total_dus: totalDus,
+      total_orders: parseInt(salesOrders[0].total_orders || 0),
+      allowance_deduction: allowanceDeduction,
+      net_deposit_recommended: netDepositRecommended,
+      existing_deposit: existingDeposit[0] || null
+    });
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// POST /api/deposits (Input Setoran Harian)
+app.post('/api/deposits', authenticateToken, async (req, res) => {
+  try {
+    const {
+      sales_id,
+      deposit_date,
+      total_sales_amount,
+      operational_allowance_deduction,
+      net_deposit_amount,
+      deposit_method,
+      bank_name,
+      notes,
+      proof_image
+    } = req.body;
+
+    const actualSalesId = req.user.role === 'sales' ? req.user.id : sales_id;
+    if (!actualSalesId || !deposit_date) {
+      return errorResponse(res, 'Sales ID dan tanggal setoran wajib diisi', 400);
+    }
+
+    const totalSales = parseFloat(total_sales_amount || 0);
+    const deduction = operational_allowance_deduction !== undefined ? parseFloat(operational_allowance_deduction) : 30000;
+    const netDeposit = net_deposit_amount !== undefined ? parseFloat(net_deposit_amount) : Math.max(0, totalSales - deduction);
+
+    // Generate deposit_number
+    const dateStr = deposit_date.replace(/-/g, '').substring(0, 6);
+    const [lastDeposit] = await pool.query(
+      `SELECT deposit_number FROM daily_deposits WHERE deposit_number LIKE ? ORDER BY id DESC LIMIT 1`,
+      [`DEP-${dateStr}-%`]
+    );
+    let nextNum = 1;
+    if (lastDeposit.length > 0) {
+      const parts = lastDeposit[0].deposit_number.split('-');
+      if (parts.length === 3) {
+        nextNum = parseInt(parts[2], 10) + 1;
+      }
+    }
+    const depositNumber = `DEP-${dateStr}-${String(nextNum).padStart(4, '0')}`;
+
+    const savedProof = proof_image ? saveBase64Image(proof_image, 'deposit') : null;
+    const status = req.user.role === 'sales' ? 'pending' : 'verified';
+    const verifiedBy = req.user.role !== 'sales' ? req.user.id : null;
+
+    const [insertResult] = await pool.query(
+      `INSERT INTO daily_deposits 
+       (deposit_number, sales_id, deposit_date, total_sales_amount, operational_allowance_deduction, 
+        net_deposit_amount, deposit_method, bank_name, proof_image, status, verified_by, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        depositNumber,
+        actualSalesId,
+        deposit_date,
+        totalSales,
+        deduction,
+        netDeposit,
+        deposit_method || 'tunai',
+        bank_name || null,
+        savedProof,
+        status,
+        verifiedBy,
+        notes || null
+      ]
+    );
+
+    return successResponse(res, {
+      id: insertResult.insertId,
+      deposit_number: depositNumber,
+      net_deposit_amount: netDeposit
+    }, null, 'Setoran harian berhasil disimpan');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/deposits/:id/status (Verifikasi Status Setoran)
+app.put('/api/deposits/:id/status', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner' && req.user.role !== 'supervisor') {
+      return errorResponse(res, 'Hanya Admin atau Owner yang dapat memverifikasi setoran', 403);
+    }
+    const { id } = req.params;
+    const { status, notes } = req.body;
+    if (!['pending', 'verified', 'rejected'].includes(status)) {
+      return errorResponse(res, 'Status tidak valid', 400);
+    }
+
+    await pool.query(
+      `UPDATE daily_deposits SET status = ?, verified_by = ?, notes = IFNULL(?, notes) WHERE id = ?`,
+      [status, req.user.id, notes || null, id]
+    );
+
+    return successResponse(res, { id, status }, null, `Status setoran berhasil diubah menjadi ${status}`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// DELETE /api/deposits/:id
+app.delete('/api/deposits/:id', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+      return errorResponse(res, 'Akses terbatas untuk Admin & Owner', 403);
+    }
+    const { id } = req.params;
+    await pool.query('DELETE FROM daily_deposits WHERE id = ?', [id]);
+    return successResponse(res, { id }, null, 'Data setoran berhasil dihapus');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// ========================================================
+// REVISI FITUR: TARGET PENJUALAN SALES & KOTA
+// ========================================================
+
+// GET /api/targets (List Target & Realisasi untuk Admin)
+app.get('/api/targets', authenticateToken, async (req, res) => {
+  try {
+    const month = req.query.month || new Date().toISOString().substring(0, 7);
+    const salesId = req.query.sales_id || null;
+
+    let salesWhere = 'WHERE u.role = "sales" AND u.is_active = 1';
+    let params = [];
+    if (salesId) {
+      salesWhere += ' AND u.id = ?';
+      params.push(salesId);
+    }
+
+    const [salesUsers] = await pool.query(
+      `SELECT u.id, u.name, u.username, u.email, u.phone, u.vehicle_type, u.vehicle_number 
+       FROM users u ${salesWhere} ORDER BY u.name ASC`,
+      params
+    );
+
+    const [targets] = await pool.query(
+      `SELECT * FROM sales_targets WHERE month = ?`,
+      [month]
+    );
+
+    const [realizations] = await pool.query(
+      `SELECT 
+        o.sales_id,
+        CASE 
+          WHEN DAY(o.order_date) BETWEEN 1 AND 7 THEN 1
+          WHEN DAY(o.order_date) BETWEEN 8 AND 14 THEN 2
+          WHEN DAY(o.order_date) BETWEEN 15 AND 21 THEN 3
+          ELSE 4
+        END as week_number,
+        IFNULL(SUM(o.grand_total), 0) as actual_rupiah,
+        IFNULL(SUM(oi.qty), 0) as actual_pack
+       FROM orders o
+       JOIN order_items oi ON o.id = oi.order_id
+       WHERE DATE_FORMAT(o.order_date, '%Y-%m') = ?
+         AND o.status != 'cancelled' AND o.status != 'rejected'
+       GROUP BY o.sales_id, week_number`,
+      [month]
+    );
+
+    const result = salesUsers.map(sales => {
+      const salesTargetList = targets.filter(t => t.sales_id === sales.id);
+      const salesRealizationList = realizations.filter(r => r.sales_id === sales.id);
+
+      const weeks = [1, 2, 3, 4].map(w => {
+        const tgt = salesTargetList.find(t => t.week_number === w) || {
+          target_pack: 0,
+          target_dus: 0,
+          target_rupiah: 0,
+          notes: ''
+        };
+        const rel = salesRealizationList.find(r => r.week_number === w) || {
+          actual_pack: 0,
+          actual_rupiah: 0
+        };
+
+        const actualPack = parseInt(rel.actual_pack || 0);
+        const actualDus = Math.floor(actualPack / 20);
+        const actualRupiah = parseFloat(rel.actual_rupiah || 0);
+
+        const targetPack = parseInt(tgt.target_pack || 0);
+        const targetDus = parseInt(tgt.target_dus || 0);
+        const targetRupiah = parseFloat(tgt.target_rupiah || 0);
+
+        return {
+          week_number: w,
+          target_pack: targetPack,
+          target_dus: targetDus,
+          target_rupiah: targetRupiah,
+          actual_pack: actualPack,
+          actual_dus: actualDus,
+          actual_rupiah: actualRupiah,
+          pct_pack: targetPack > 0 ? Math.min(200, Math.round((actualPack / targetPack) * 100)) : 0,
+          pct_rupiah: targetRupiah > 0 ? Math.min(200, Math.round((actualRupiah / targetRupiah) * 100)) : 0,
+          notes: tgt.notes || ''
+        };
+      });
+
+      const totalTargetPack = weeks.reduce((sum, w) => sum + w.target_pack, 0);
+      const totalTargetDus = weeks.reduce((sum, w) => sum + w.target_dus, 0);
+      const totalTargetRupiah = weeks.reduce((sum, w) => sum + w.target_rupiah, 0);
+
+      const totalActualPack = weeks.reduce((sum, w) => sum + w.actual_pack, 0);
+      const totalActualDus = Math.floor(totalActualPack / 20);
+      const totalActualRupiah = weeks.reduce((sum, w) => sum + w.actual_rupiah, 0);
+
+      return {
+        sales,
+        month,
+        weeks,
+        monthly: {
+          target_pack: totalTargetPack,
+          target_dus: totalTargetDus,
+          target_rupiah: totalTargetRupiah,
+          actual_pack: totalActualPack,
+          actual_dus: totalActualDus,
+          actual_rupiah: totalActualRupiah,
+          pct_pack: totalTargetPack > 0 ? Math.min(200, Math.round((totalActualPack / totalTargetPack) * 100)) : 0,
+          pct_rupiah: totalTargetRupiah > 0 ? Math.min(200, Math.round((totalActualRupiah / totalTargetRupiah) * 100)) : 0
+        }
+      };
+    });
+
+    return successResponse(res, { month, sales_targets: result });
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// GET /api/targets/my-progress (Progres Target Mingguan & Akumulasi Bulanan untuk Sales)
+app.get('/api/targets/my-progress', authenticateToken, async (req, res) => {
+  try {
+    const salesId = req.user.role === 'sales' ? req.user.id : (req.query.sales_id || req.user.id);
+    const month = req.query.month || new Date().toISOString().substring(0, 7);
+
+    const [targetRows] = await pool.query(
+      `SELECT * FROM sales_targets WHERE sales_id = ? AND month = ? ORDER BY week_number ASC`,
+      [salesId, month]
+    );
+
+    const [orderRows] = await pool.query(
+      `SELECT 
+        o.id,
+        o.order_number,
+        o.order_date,
+        o.grand_total,
+        DAY(o.order_date) as order_day,
+        CASE 
+          WHEN DAY(o.order_date) BETWEEN 1 AND 7 THEN 1
+          WHEN DAY(o.order_date) BETWEEN 8 AND 14 THEN 2
+          WHEN DAY(o.order_date) BETWEEN 15 AND 21 THEN 3
+          ELSE 4
+        END as week_number,
+        IFNULL(SUM(oi.qty), 0) as pack_qty
+       FROM orders o
+       JOIN order_items oi ON o.id = oi.order_id
+       WHERE o.sales_id = ? 
+         AND DATE_FORMAT(o.order_date, '%Y-%m') = ?
+         AND o.status != 'cancelled' AND o.status != 'rejected'
+       GROUP BY o.id, o.order_number, o.order_date, o.grand_total, order_day, week_number
+       ORDER BY o.order_date DESC`,
+      [salesId, month]
+    );
+
+    const dailyBreakdown = {};
+    orderRows.forEach(o => {
+      const day = o.order_date.toISOString().split('T')[0];
+      if (!dailyBreakdown[day]) {
+        dailyBreakdown[day] = { date: day, pack: 0, rupiah: 0, orders: 0 };
+      }
+      dailyBreakdown[day].pack += parseInt(o.pack_qty || 0);
+      dailyBreakdown[day].rupiah += parseFloat(o.grand_total || 0);
+      dailyBreakdown[day].orders += 1;
+    });
+
+    const weeks = [1, 2, 3, 4].map(w => {
+      const tgt = targetRows.find(t => t.week_number === w) || {
+        target_pack: 0,
+        target_dus: 0,
+        target_rupiah: 0,
+        notes: ''
+      };
+
+      const weekOrders = orderRows.filter(o => o.week_number === w);
+      const actualPack = weekOrders.reduce((sum, o) => sum + parseInt(o.pack_qty || 0), 0);
+      const actualDus = Math.floor(actualPack / 20);
+      const actualRupiah = weekOrders.reduce((sum, o) => sum + parseFloat(o.grand_total || 0), 0);
+
+      const targetPack = parseInt(tgt.target_pack || 0);
+      const targetDus = parseInt(tgt.target_dus || 0);
+      const targetRupiah = parseFloat(tgt.target_rupiah || 0);
+
+      return {
+        week_number: w,
+        week_label: `Minggu ${w} (${w === 1 ? 'Tgl 1-7' : w === 2 ? 'Tgl 8-14' : w === 3 ? 'Tgl 15-21' : 'Tgl 22-31'})`,
+        target_pack: targetPack,
+        target_dus: targetDus,
+        target_rupiah: targetRupiah,
+        actual_pack: actualPack,
+        actual_dus: actualDus,
+        actual_rupiah: actualRupiah,
+        pct_pack: targetPack > 0 ? Math.min(200, Math.round((actualPack / targetPack) * 100)) : 0,
+        pct_rupiah: targetRupiah > 0 ? Math.min(200, Math.round((actualRupiah / targetRupiah) * 100)) : 0,
+        notes: tgt.notes || ''
+      };
+    });
+
+    const totalTargetPack = weeks.reduce((sum, w) => sum + w.target_pack, 0);
+    const totalTargetDus = weeks.reduce((sum, w) => sum + w.target_dus, 0);
+    const totalTargetRupiah = weeks.reduce((sum, w) => sum + w.target_rupiah, 0);
+
+    const totalActualPack = weeks.reduce((sum, w) => sum + w.actual_pack, 0);
+    const totalActualDus = Math.floor(totalActualPack / 20);
+    const totalActualRupiah = weeks.reduce((sum, w) => sum + w.actual_rupiah, 0);
+
+    return successResponse(res, {
+      sales_id: parseInt(salesId),
+      month,
+      weeks,
+      monthly: {
+        target_pack: totalTargetPack,
+        target_dus: totalTargetDus,
+        target_rupiah: totalTargetRupiah,
+        actual_pack: totalActualPack,
+        actual_dus: totalActualDus,
+        actual_rupiah: totalActualRupiah,
+        pct_pack: totalTargetPack > 0 ? Math.min(200, Math.round((totalActualPack / totalTargetPack) * 100)) : 0,
+        pct_rupiah: totalTargetRupiah > 0 ? Math.min(200, Math.round((totalActualRupiah / totalTargetRupiah) * 100)) : 0
+      },
+      daily_history: Object.values(dailyBreakdown)
+    });
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// POST /api/targets (Admin Simpan / Ubah Target Mingguan)
+app.post('/api/targets', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+      return errorResponse(res, 'Hanya Admin atau Owner yang dapat menentukan target', 403);
+    }
+    const { sales_id, month, week_number, target_pack, target_dus, target_rupiah, notes } = req.body;
+
+    if (!sales_id || !month || !week_number) {
+      return errorResponse(res, 'Sales ID, Bulan (YYYY-MM), dan Nomor Minggu wajib diisi', 400);
+    }
+
+    const pack = parseInt(target_pack || 0);
+    const dus = target_dus !== undefined ? parseInt(target_dus) : Math.floor(pack / 20);
+    const rupiah = parseFloat(target_rupiah || 0);
+
+    await pool.query(
+      `INSERT INTO sales_targets (sales_id, month, week_number, target_pack, target_dus, target_rupiah, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE 
+         target_pack = VALUES(target_pack),
+         target_dus = VALUES(target_dus),
+         target_rupiah = VALUES(target_rupiah),
+         notes = VALUES(notes)`,
+      [sales_id, month, week_number, pack, dus, rupiah, notes || null]
+    );
+
+    return successResponse(res, { sales_id, month, week_number, pack, dus, rupiah }, null, 'Target mingguan berhasil disimpan');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// POST /api/targets/batch (Simpan Target 4 Minggu Sekaligus)
+app.post('/api/targets/batch', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+      return errorResponse(res, 'Hanya Admin atau Owner yang dapat menentukan target', 403);
+    }
+    const { sales_id, month, weeks } = req.body;
+    if (!sales_id || !month || !Array.isArray(weeks)) {
+      return errorResponse(res, 'Format data target tidak valid', 400);
+    }
+
+    for (const w of weeks) {
+      const pack = parseInt(w.target_pack || 0);
+      const dus = w.target_dus !== undefined ? parseInt(w.target_dus) : Math.floor(pack / 20);
+      const rupiah = parseFloat(w.target_rupiah || 0);
+      await pool.query(
+        `INSERT INTO sales_targets (sales_id, month, week_number, target_pack, target_dus, target_rupiah, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE 
+           target_pack = VALUES(target_pack),
+           target_dus = VALUES(target_dus),
+           target_rupiah = VALUES(target_rupiah),
+           notes = VALUES(notes)`,
+        [sales_id, month, w.week_number, pack, dus, rupiah, w.notes || null]
+      );
+    }
+
+    return successResponse(res, { sales_id, month, count: weeks.length }, null, 'Target bulanan dan mingguan sales berhasil disimpan');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// GET /api/targets/cities (Target & Akumulasi Bulanan per Kategori Kota untuk Owner & Admin)
+app.get('/api/targets/cities', authenticateToken, async (req, res) => {
+  try {
+    const month = req.query.month || new Date().toISOString().substring(0, 7);
+
+    // Ambil daftar unik kota (digabung di Node.js agar 100% aman lintas versi MySQL & MariaDB)
+    const [custCities] = await pool.query(
+      `SELECT DISTINCT regency_name as city_name FROM customers WHERE regency_name IS NOT NULL AND regency_name != ''`
+    );
+    const [targetCities] = await pool.query(
+      `SELECT DISTINCT city_name FROM city_targets WHERE month = ?`,
+      [month]
+    );
+
+    const uniqueCityNames = Array.from(
+      new Set([
+        ...custCities.map((c) => c.city_name),
+        ...targetCities.map((t) => t.city_name),
+        'Kabupaten Bogor'
+      ])
+    ).filter(Boolean).sort();
+
+    const cityList = uniqueCityNames.map((name) => ({ city_name: name }));
+
+    // Ambil target kota yang diset
+    const [cityTargetRows] = await pool.query(
+      `SELECT * FROM city_targets WHERE month = ?`,
+      [month]
+    );
+
+    // Ambil realisasi aktual per kota bulan ini
+    const [actualCityRows] = await pool.query(
+      `SELECT 
+        IFNULL(c.regency_name, 'Kabupaten Bogor') as city_name,
+        COUNT(DISTINCT o.id) as total_orders,
+        COUNT(DISTINCT c.id) as total_customers,
+        IFNULL(SUM(o.grand_total), 0) as actual_rupiah,
+        IFNULL(SUM(oi.qty), 0) as actual_pack,
+        IFNULL(SUM(oi.cost_price * oi.qty), 0) as actual_cogs
+       FROM customers c
+       LEFT JOIN orders o ON c.id = o.customer_id 
+         AND DATE_FORMAT(o.order_date, '%Y-%m') = ?
+         AND o.status != 'cancelled' AND o.status != 'rejected'
+       LEFT JOIN order_items oi ON o.id = oi.order_id
+       GROUP BY city_name`,
+      [month]
+    );
+
+    const result = cityList.map(item => {
+      const cityName = item.city_name;
+      const tgt = cityTargetRows.find(t => t.city_name.toLowerCase() === cityName.toLowerCase()) || {
+        target_pack: 0,
+        target_dus: 0,
+        target_rupiah: 0,
+        notes: ''
+      };
+
+      const act = actualCityRows.find(a => a.city_name.toLowerCase() === cityName.toLowerCase()) || {
+        total_orders: 0,
+        total_customers: 0,
+        actual_rupiah: 0,
+        actual_pack: 0,
+        actual_cogs: 0
+      };
+
+      const actualPack = parseInt(act.actual_pack || 0);
+      const actualDus = Math.floor(actualPack / 20);
+      const actualRupiah = parseFloat(act.actual_rupiah || 0);
+      const actualCogs = parseFloat(act.actual_cogs || 0);
+      const profit = actualRupiah - actualCogs;
+
+      const targetPack = parseInt(tgt.target_pack || 0);
+      const targetDus = parseInt(tgt.target_dus || 0);
+      const targetRupiah = parseFloat(tgt.target_rupiah || 0);
+
+      return {
+        city_name: cityName,
+        month,
+        target_pack: targetPack,
+        target_dus: targetDus,
+        target_rupiah: targetRupiah,
+        actual_pack: actualPack,
+        actual_dus: actualDus,
+        actual_rupiah: actualRupiah,
+        cogs: actualCogs,
+        profit: profit,
+        margin_percent: actualRupiah > 0 ? ((profit / actualRupiah) * 100).toFixed(1) : 0,
+        pct_pack: targetPack > 0 ? Math.min(200, Math.round((actualPack / targetPack) * 100)) : 0,
+        pct_rupiah: targetRupiah > 0 ? Math.min(200, Math.round((actualRupiah / targetRupiah) * 100)) : 0,
+        total_orders: parseInt(act.total_orders || 0),
+        total_customers: parseInt(act.total_customers || 0),
+        notes: tgt.notes || ''
+      };
+    });
+
+    const grandTarget = {
+      target_pack: result.reduce((s, r) => s + r.target_pack, 0),
+      target_dus: result.reduce((s, r) => s + r.target_dus, 0),
+      target_rupiah: result.reduce((s, r) => s + r.target_rupiah, 0),
+      actual_pack: result.reduce((s, r) => s + r.actual_pack, 0),
+      actual_dus: result.reduce((s, r) => s + r.actual_dus, 0),
+      actual_rupiah: result.reduce((s, r) => s + r.actual_rupiah, 0),
+      profit: result.reduce((s, r) => s + r.profit, 0)
+    };
+
+    return successResponse(res, {
+      month,
+      cities: result,
+      summary: grandTarget
+    });
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// POST /api/targets/cities (Owner / Admin Simpan Target Kota)
+app.post('/api/targets/cities', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner atau Admin yang dapat menentukan target kota', 403);
+    }
+    const { city_name, month, target_pack, target_dus, target_rupiah, notes } = req.body;
+    if (!city_name || !month) {
+      return errorResponse(res, 'Nama kota dan bulan (YYYY-MM) wajib diisi', 400);
+    }
+
+    const pack = parseInt(target_pack || 0);
+    const dus = target_dus !== undefined ? parseInt(target_dus) : Math.floor(pack / 20);
+    const rupiah = parseFloat(target_rupiah || 0);
+
+    await pool.query(
+      `INSERT INTO city_targets (city_name, month, target_pack, target_dus, target_rupiah, notes)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE 
+         target_pack = VALUES(target_pack),
+         target_dus = VALUES(target_dus),
+         target_rupiah = VALUES(target_rupiah),
+         notes = VALUES(notes)`,
+      [city_name, month, pack, dus, rupiah, notes || null]
+    );
+
+    return successResponse(res, { city_name, month, pack, dus, rupiah }, null, `Target kota ${city_name} berhasil disimpan`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/products/:id/pricing (Admin & Owner Update Harga Jual & HPP)
+app.put('/api/products/:id/pricing', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+      return errorResponse(res, 'Hanya Admin atau Owner yang dapat mengubah harga produk', 403);
+    }
+    const { id } = req.params;
+    const { price, cost_price, update_orders } = req.body;
+
+    let updates = [];
+    let params = [];
+
+    if (price !== undefined && !isNaN(price)) {
+      updates.push('price = ?');
+      params.push(parseFloat(price));
+    }
+
+    // Owner atau Admin bisa ubah HPP jika dikirim
+    if (cost_price !== undefined && !isNaN(cost_price)) {
+      updates.push('cost_price = ?');
+      params.push(parseFloat(cost_price));
+    }
+
+    if (updates.length === 0) {
+      return errorResponse(res, 'Tidak ada nilai harga yang dikirim', 400);
+    }
+
+    params.push(id);
+    await pool.query(`UPDATE products SET ${updates.join(', ')} WHERE id = ?`, params);
+
+    if (cost_price !== undefined && update_orders) {
+      await pool.query('UPDATE order_items SET cost_price = ? WHERE product_id = ?', [parseFloat(cost_price), id]);
+    }
+
+    return successResponse(res, { id, price, cost_price }, null, 'Harga jual & HPP produk berhasil diperbarui');
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }

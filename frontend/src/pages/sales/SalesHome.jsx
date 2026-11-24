@@ -15,7 +15,8 @@ import {
   PhoneCall,
   Wallet,
   Fuel,
-  Bike
+  Bike,
+  Target
 } from 'lucide-react';
 import MobileLayout from '../../components/layout/MobileLayout';
 import { request } from '../../utils/request';
@@ -121,7 +122,7 @@ export default function SalesHome() {
       {/* Tunjangan Operasional Card (BBM + Sewa Motor = Rp 30.000/hari) */}
       <Link
         to="/sales/tunjangan"
-        className="block bg-gradient-to-r from-teal-700 via-emerald-700 to-emerald-800 rounded-2xl p-3.5 text-white shadow-md shadow-emerald-900/10 mb-4 hover:opacity-95 transition-all border border-emerald-600/30"
+        className="block bg-gradient-to-r from-teal-700 via-emerald-700 to-emerald-800 rounded-2xl p-3.5 text-white shadow-md shadow-emerald-900/10 mb-3 hover:opacity-95 transition-all border border-emerald-600/30"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -142,6 +143,34 @@ export default function SalesHome() {
           </div>
           <span className="text-[10px] bg-white/20 hover:bg-white/30 text-white font-bold px-2 py-1 rounded-lg">
             Rincian &rarr;
+          </span>
+        </div>
+      </Link>
+
+      {/* Target Penjualan Card (Target Mingguan & Akumulasi 1 Bulan) */}
+      <Link
+        to="/sales/target"
+        className="block bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 rounded-2xl p-3.5 text-white shadow-md shadow-slate-950/20 mb-4 hover:opacity-95 transition-all border border-teal-700/30"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-teal-500/20 border border-teal-400/30">
+              <Target className="h-5 w-5 text-teal-300" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-white">Target & Pencapaian Sales</span>
+                <span className="text-[9px] bg-teal-400 text-slate-900 font-black px-1.5 py-0.5 rounded-full">
+                  Pack, Dus & Rp
+                </span>
+              </div>
+              <p className="text-[10px] text-teal-200 mt-0.5">
+                Pencapaian mingguan terupdate harian & akumulasi 1 bulan
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] bg-white/20 hover:bg-white/30 text-white font-bold px-2 py-1 rounded-lg">
+            Pantau &rarr;
           </span>
         </div>
       </Link>

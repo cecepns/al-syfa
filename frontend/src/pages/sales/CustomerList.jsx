@@ -15,13 +15,15 @@ import {
   FileText,
   Clock,
   CheckCircle,
-  CreditCard
+  CreditCard,
+  Printer
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import MobileLayout from '../../components/layout/MobileLayout';
 import SearchInput from '../../components/common/SearchInput';
 import Pagination from '../../components/common/Pagination';
 import Modal from '../../components/common/Modal';
+import ReceiptModal from '../../components/common/ReceiptModal';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
@@ -42,6 +44,7 @@ export default function CustomerList() {
   const [purchaseHistory, setPurchaseHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [updatingRetailId, setUpdatingRetailId] = useState(null);
+  const [receiptOrder, setReceiptOrder] = useState(null);
 
   // Add Customer Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -186,20 +189,21 @@ export default function CustomerList() {
     }
   };
 
-  const handleMarkRetailLunas = async (orderId) => {
+  const handleUpdatePaymentStatus = async (orderId, newStatus = 'lunas') => {
     setUpdatingRetailId(orderId);
     try {
-      await request.put(API_ENDPOINTS.ORDERS.RETAIL_STATUS(orderId), {
-        notes: 'Pelunasan pesanan ritel langsung oleh sales'
+      await request.put(API_ENDPOINTS.ORDERS.PAYMENT_STATUS(orderId), {
+        payment_status: newStatus,
+        notes: `Update status pembayaran menjadi ${newStatus} langsung oleh sales`
       });
-      toast.success('Pesanan ritel berhasil ditandai Lunas!');
+      toast.success(`Status pembayaran toko berhasil diperbarui menjadi ${newStatus.toUpperCase()}!`);
       if (selectedCustomer) {
         const res = await request.get(API_ENDPOINTS.CUSTOMERS.PURCHASE_HISTORY(selectedCustomer.id));
         setPurchaseHistory(res.data || []);
         fetchCustomers();
       }
     } catch (err) {
-      toast.error(err.message || 'Gagal memperbarui status ritel');
+      toast.error(err.message || 'Gagal memperbarui status pembayaran');
     } finally {
       setUpdatingRetailId(null);
     }
@@ -637,8 +641,8 @@ export default function CustomerList() {
                     ))}
                   </div>
 
-                  {/* Order Total & Retail Lunas Action */}
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                  {/* Order Total, Print & Retail Lunas Action */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
                     <div>
                       <span className="text-[11px] text-slate-500">Total Belanja:</span>
                       <p className="text-sm font-black text-emerald-700">
@@ -646,18 +650,35 @@ export default function CustomerList() {
                       </p>
                     </div>
 
-                    {/* Sales can mark LUNAS directly for retail orders */}
-                    {selectedCustomer?.shop_type === 'ritel' && order.payment_status !== 'lunas' && (
+                    <div className="flex items-center gap-1.5">
+                      {/* Print Receipt Button via Bluetooth Thermal */}
                       <button
                         type="button"
-                        onClick={() => handleMarkRetailLunas(order.id)}
-                        disabled={updatingRetailId === order.id}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold transition-all shadow-sm shadow-emerald-200 disabled:opacity-50"
+                        onClick={() => setReceiptOrder(order)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-all border border-blue-200"
+                        title="Cetak Struk Transaksi Bluetooth"
                       >
-                        <CheckCircle className="h-3.5 w-3.5" />
-                        <span>{updatingRetailId === order.id ? 'Memproses...' : 'Tandai Lunas'}</span>
+                        <Printer className="h-3.5 w-3.5" />
+                        <span>Cetak</span>
                       </button>
-                    )}
+
+                      {/* Sales can mark LUNAS directly for any store type (ritel, grosir, agen, apotek) */}
+                      {order.payment_status !== 'lunas' ? (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdatePaymentStatus(order.id, 'lunas')}
+                          disabled={updatingRetailId === order.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold transition-all shadow-sm shadow-emerald-200 disabled:opacity-50"
+                        >
+                          <CheckCircle className="h-3.5 w-3.5" />
+                          <span>{updatingRetailId === order.id ? 'Memproses...' : 'Tandai Lunas'}</span>
+                        </button>
+                      ) : (
+                        <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold">
+                          <CheckCircle className="h-3.5 w-3.5" /> Terbayar Lunas
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -680,6 +701,13 @@ export default function CustomerList() {
           </div>
         </div>
       </Modal>
+
+      {/* Re-print Receipt Modal */}
+      <ReceiptModal
+        isOpen={!!receiptOrder}
+        onClose={() => setReceiptOrder(null)}
+        order={receiptOrder}
+      />
     </MobileLayout>
   );
 }
