@@ -11,12 +11,42 @@ import {
   PieChart,
   FileSpreadsheet,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  BarChart3
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+
+// Chart.js & React-Chartjs-2
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  ArcElement
+} from 'chart.js';
+import { Bar, Doughnut } from 'react-chartjs-2';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  ArcElement
+);
 
 export default function OwnerBranchReport() {
   const [data, setData] = useState(null);
@@ -63,6 +93,151 @@ export default function OwnerBranchReport() {
     const q = search.toLowerCase();
     return branches.filter((b) => b.branch_city.toLowerCase().includes(q));
   }, [branches, search]);
+
+  // Chart Data: Bar Chart (Omzet vs Modal vs Laba per Cabang)
+  const branchBarData = useMemo(() => {
+    const list = filteredBranches.slice(0, 8);
+    return {
+      labels: list.map((b) => b.branch_city),
+      datasets: [
+        {
+          label: 'Omzet Penjualan',
+          data: list.map((b) => Number(b.revenue || 0)),
+          backgroundColor: 'rgba(59, 130, 246, 0.85)',
+          borderColor: '#2563eb',
+          borderWidth: 1.5,
+          borderRadius: 8,
+          hoverBackgroundColor: 'rgba(37, 99, 235, 1)',
+        },
+        {
+          label: 'Modal HPP',
+          data: list.map((b) => Number(b.cogs || 0)),
+          backgroundColor: 'rgba(245, 158, 11, 0.85)',
+          borderColor: '#d97706',
+          borderWidth: 1.5,
+          borderRadius: 8,
+          hoverBackgroundColor: 'rgba(217, 119, 6, 1)',
+        },
+        {
+          label: 'Laba Bersih',
+          data: list.map((b) => Number(b.profit || 0)),
+          backgroundColor: 'rgba(16, 185, 129, 0.85)',
+          borderColor: '#059669',
+          borderWidth: 1.5,
+          borderRadius: 8,
+          hoverBackgroundColor: 'rgba(5, 150, 105, 1)',
+        },
+      ],
+    };
+  }, [filteredBranches]);
+
+  const branchBarOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          usePointStyle: true,
+          boxWidth: 8,
+          boxHeight: 8,
+          font: { size: 11, weight: '600' },
+          color: '#334155',
+          padding: 14,
+        },
+      },
+      tooltip: {
+        backgroundColor: '#0f172a',
+        padding: 12,
+        cornerRadius: 10,
+        callbacks: {
+          label: function (ctx) {
+            return ` ${ctx.dataset.label}: Rp ${Number(ctx.raw || 0).toLocaleString('id-ID')}`;
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { color: '#64748b', font: { size: 11, weight: '600' } },
+      },
+      y: {
+        grid: { color: '#f1f5f9' },
+        ticks: {
+          color: '#64748b',
+          font: { size: 11, family: 'monospace' },
+          callback: function (val) {
+            if (val >= 1000000) return `Rp ${(val / 1000000).toFixed(1)} Jt`;
+            if (val >= 1000) return `Rp ${(val / 1000).toFixed(0)} Rb`;
+            return `Rp ${val}`;
+          },
+        },
+      },
+    },
+  };
+
+  // Chart Data: Doughnut Chart (Kontribusi Omzet per Cabang)
+  const contributionDoughnutData = useMemo(() => {
+    const list = branches.slice(0, 5);
+    const otherRevenue = branches.slice(5).reduce((s, b) => s + Number(b.revenue || 0), 0);
+    const labels = list.map((b) => b.branch_city);
+    const dataVals = list.map((b) => Number(b.revenue || 0));
+
+    if (otherRevenue > 0) {
+      labels.push('Cabang Lainnya');
+      dataVals.push(otherRevenue);
+    }
+
+    return {
+      labels: labels.length > 0 ? labels : ['Semua Cabang'],
+      datasets: [
+        {
+          data: dataVals.length > 0 ? dataVals : [1],
+          backgroundColor: [
+            'rgba(16, 185, 129, 0.85)',
+            'rgba(59, 130, 246, 0.85)',
+            'rgba(245, 158, 11, 0.85)',
+            'rgba(168, 85, 247, 0.85)',
+            'rgba(236, 72, 153, 0.85)',
+            'rgba(100, 116, 139, 0.85)',
+          ],
+          borderColor: ['#059669', '#2563eb', '#d97706', '#9333ea', '#db2777', '#475569'],
+          borderWidth: 1.5,
+          hoverOffset: 6,
+        },
+      ],
+    };
+  }, [branches]);
+
+  const contributionDoughnutOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '68%',
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          usePointStyle: true,
+          font: { size: 10, weight: '600' },
+          color: '#475569',
+          padding: 8,
+        },
+      },
+      tooltip: {
+        backgroundColor: '#0f172a',
+        padding: 10,
+        cornerRadius: 8,
+        callbacks: {
+          label: function (ctx) {
+            const val = ctx.raw || 0;
+            const pct = totalRevenue > 0 ? ((val / totalRevenue) * 100).toFixed(1) : 0;
+            return ` ${ctx.label}: Rp ${Number(val).toLocaleString('id-ID')} (${pct}%)`;
+          },
+        },
+      },
+    },
+  };
 
   // Export to CSV Function
   const handleExportCSV = () => {
@@ -178,87 +353,6 @@ export default function OwnerBranchReport() {
         </div>
       </div>
 
-      {/* City Category Selector Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 bg-emerald-50 text-emerald-700 rounded-xl">
-            <Building2 className="h-5 w-5" />
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              Kategori Kota / Cabang yang Mau Dilihat:
-            </h4>
-            <p className="text-[11px] text-slate-500">Pilih kategori kota untuk melihat rincian laba spesifik atau pantau seluruh cabang</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <select
-            value={selectedCity}
-            onChange={(e) => setSelectedCity(e.target.value)}
-            className="text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-          >
-            <option value="all">-- Semua Cabang ({branches.length} Wilayah Kota) --</option>
-            {availableCities.map((cName) => (
-              <option key={cName} value={cName}>
-                📍 {cName}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Spotlight Selected City Profit Card */}
-      {selectedCityData && (
-        <div className="bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900 rounded-3xl p-5 text-white shadow-lg mb-6 border border-emerald-600/30">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 border-b border-emerald-700/40 pb-3">
-            <div className="flex items-center gap-2.5">
-              <span className="p-1 rounded-lg bg-emerald-500/20 text-emerald-300 font-bold text-[10px] uppercase tracking-wider border border-emerald-400/30">
-                Laba Kategori Kota
-              </span>
-              <h3 className="text-lg font-black text-white tracking-tight">{selectedCityData.branch_city}</h3>
-            </div>
-            <span className="text-xs font-black px-3 py-1 rounded-full bg-emerald-400 text-slate-900 shadow-sm self-start sm:self-auto">
-              Margin Laba: +{selectedCityData.margin_percent}%
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-            <div className="bg-slate-900/60 p-3 rounded-xl border border-emerald-500/20">
-              <span className="text-[10px] text-slate-400">Omzet Penjualan:</span>
-              <p className="text-base font-black text-white font-mono mt-0.5">
-                Rp {Number(selectedCityData.revenue).toLocaleString('id-ID')}
-              </p>
-              <p className="text-[10px] text-emerald-300 mt-0.5">{selectedCityData.total_orders} Pesanan Faktur</p>
-            </div>
-
-            <div className="bg-slate-900/60 p-3 rounded-xl border border-emerald-500/20">
-              <span className="text-[10px] text-slate-400">Modal HPP Produk:</span>
-              <p className="text-base font-black text-amber-300 font-mono mt-0.5">
-                Rp {Number(selectedCityData.cogs).toLocaleString('id-ID')}
-              </p>
-              <p className="text-[10px] text-slate-400 mt-0.5">Total beban modal</p>
-            </div>
-
-            <div className="bg-slate-900/60 p-3 rounded-xl border border-emerald-500/20">
-              <span className="text-[10px] text-slate-400">Laba Bersih Wilayah:</span>
-              <p className="text-base font-black text-emerald-400 font-mono mt-0.5">
-                Rp {Number(selectedCityData.profit).toLocaleString('id-ID')}
-              </p>
-              <p className="text-[10px] text-emerald-300 font-bold mt-0.5">Margin: +{selectedCityData.margin_percent}%</p>
-            </div>
-
-            <div className="bg-slate-900/60 p-3 rounded-xl border border-emerald-500/20">
-              <span className="text-[10px] text-slate-400">Total Outlet Aktif:</span>
-              <p className="text-base font-black text-white font-mono mt-0.5">
-                {selectedCityData.total_customers} Toko
-              </p>
-              <p className="text-[10px] text-slate-400 mt-0.5">Terdaftar di cabang ini</p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Summary KPI Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
@@ -322,7 +416,7 @@ export default function OwnerBranchReport() {
         </div>
       </div>
 
-      {/* City Category Selector Bar */}
+      {/* City Category Selector Bar (Single Clean Instance) */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className="p-2 bg-emerald-50 text-emerald-700 rounded-xl">
@@ -402,6 +496,45 @@ export default function OwnerBranchReport() {
           </div>
         </div>
       )}
+
+      {/* Chart.js Section: Bar comparison & Doughnut share */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        {/* Bar Chart: Omzet vs HPP vs Laba per Cabang */}
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 sm:p-6 flex flex-col justify-between">
+          <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-2">
+                <BarChart3 className="h-4 w-4 text-emerald-600" />
+                Grafik Perbandingan Finansial Antar Cabang
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Perbandingan Omzet, Modal HPP, dan Laba Bersih tiap wilayah operasional.
+              </p>
+            </div>
+          </div>
+
+          <div className="h-72 w-full">
+            <Bar data={branchBarData} options={branchBarOptions} />
+          </div>
+        </div>
+
+        {/* Doughnut Chart: Kontribusi Omzet */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 sm:p-6 flex flex-col justify-between">
+          <div className="pb-4 border-b border-slate-100 mb-4">
+            <h3 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-2">
+              <PieChart className="h-4 w-4 text-blue-600" />
+              Pangsa Kontribusi Omzet
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Distribusi kontribusi omzet penjualan per kota.
+            </p>
+          </div>
+
+          <div className="h-60 w-full relative flex items-center justify-center">
+            <Doughnut data={contributionDoughnutData} options={contributionDoughnutOptions} />
+          </div>
+        </div>
+      </div>
 
       {/* Main Table Card */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden mb-6">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Target,
   Building2,
@@ -14,13 +14,41 @@ import {
   CheckCircle2,
   AlertCircle,
   FileSpreadsheet,
-  Award
+  Award,
+  BarChart3
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
 import Modal from '../../components/common/Modal';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+
+// Chart.js & React-Chartjs-2
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js';
+import { Bar } from 'react-chartjs-2';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
 
 export default function OwnerCityTargets() {
   const [data, setData] = useState(null);
@@ -73,6 +101,88 @@ export default function OwnerCityTargets() {
   const globalPctRupiah = summary.target_rupiah > 0
     ? Math.min(200, Math.round((summary.actual_rupiah / summary.target_rupiah) * 100))
     : 0;
+
+  // Chart Data: Target vs Realisasi Omzet per Kategori Kota
+  const cityTargetChartData = useMemo(() => {
+    return {
+      labels: cities.map((c) => c.city_name),
+      datasets: [
+        {
+          label: 'Target Omzet (Rp)',
+          data: cities.map((c) => Number(c.target_rupiah || 0)),
+          backgroundColor: 'rgba(59, 130, 246, 0.85)',
+          borderColor: '#2563eb',
+          borderWidth: 1.5,
+          borderRadius: 8,
+          hoverBackgroundColor: 'rgba(37, 99, 235, 1)',
+        },
+        {
+          label: 'Realisasi Omzet (Rp)',
+          data: cities.map((c) => Number(c.actual_rupiah || 0)),
+          backgroundColor: 'rgba(16, 185, 129, 0.85)',
+          borderColor: '#059669',
+          borderWidth: 1.5,
+          borderRadius: 8,
+          hoverBackgroundColor: 'rgba(5, 150, 105, 1)',
+        },
+        {
+          label: 'Laba Wilayah (Rp)',
+          data: cities.map((c) => Number(c.profit || 0)),
+          backgroundColor: 'rgba(245, 158, 11, 0.85)',
+          borderColor: '#d97706',
+          borderWidth: 1.5,
+          borderRadius: 8,
+          hoverBackgroundColor: 'rgba(217, 119, 6, 1)',
+        },
+      ],
+    };
+  }, [cities]);
+
+  const cityTargetChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          usePointStyle: true,
+          boxWidth: 8,
+          boxHeight: 8,
+          font: { size: 11, weight: '600' },
+          color: '#334155',
+          padding: 14,
+        },
+      },
+      tooltip: {
+        backgroundColor: '#0f172a',
+        padding: 12,
+        cornerRadius: 10,
+        callbacks: {
+          label: function (ctx) {
+            return ` ${ctx.dataset.label}: Rp ${Number(ctx.raw || 0).toLocaleString('id-ID')}`;
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { color: '#64748b', font: { size: 11, weight: '600' } },
+      },
+      y: {
+        grid: { color: '#f1f5f9' },
+        ticks: {
+          color: '#64748b',
+          font: { size: 11, family: 'monospace' },
+          callback: function (val) {
+            if (val >= 1000000) return `Rp ${(val / 1000000).toFixed(1)} Jt`;
+            if (val >= 1000) return `Rp ${(val / 1000).toFixed(0)} Rb`;
+            return `Rp ${val}`;
+          },
+        },
+      },
+    },
+  };
 
   const handleOpenEdit = (cityItem) => {
     setEditingCity(cityItem);
@@ -294,6 +404,27 @@ export default function OwnerCityTargets() {
             </p>
           </div>
         </div>
+
+        {/* Chart.js Section: Target vs Realisasi Bar Chart */}
+        {cities.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 sm:p-6">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-emerald-600" />
+                  Grafik Perbandingan Target vs Realisasi Omzet per Kategori Kota ({selectedMonth})
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Visualisasi target omzet, realisasi omzet, dan laba wilayah setiap cabang kota.
+                </p>
+              </div>
+            </div>
+
+            <div className="h-72 w-full">
+              <Bar data={cityTargetChartData} options={cityTargetChartOptions} />
+            </div>
+          </div>
+        )}
 
         {/* City Targets Table */}
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
