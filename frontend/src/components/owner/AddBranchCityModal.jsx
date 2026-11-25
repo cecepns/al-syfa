@@ -322,11 +322,10 @@ export default function AddBranchCityModal({ isOpen, onClose, existingCities = [
             <button
               type="button"
               onClick={() => setTab('wilayah')}
-              className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 text-[11px] ${
-                tab === 'wilayah'
+              className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 text-[11px] ${tab === 'wilayah'
                   ? 'bg-white text-emerald-700 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
-              }`}
+                }`}
             >
               <MapPin className="h-3.5 w-3.5 shrink-0" />
               <span>Centang / Uncheck Kota (wilayah.id)</span>
@@ -334,11 +333,10 @@ export default function AddBranchCityModal({ isOpen, onClose, existingCities = [
             <button
               type="button"
               onClick={() => setTab('manage')}
-              className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 text-[11px] ${
-                tab === 'manage'
+              className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 text-[11px] ${tab === 'manage'
                   ? 'bg-white text-blue-700 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
-              }`}
+                }`}
             >
               <Settings2 className="h-3.5 w-3.5 shrink-0" />
               <span>Edit Nama / Tambah Manual ({filteredManagedBranches.length})</span>
@@ -351,7 +349,7 @@ export default function AddBranchCityModal({ isOpen, onClose, existingCities = [
               <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-3 rounded-2xl flex items-start gap-2.5">
                 <Sparkles className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
                 <div className="text-[11px] text-emerald-800">
-                  <strong>Centang</strong> kota dari <span className="font-mono font-bold">wilayah.id</span> untuk menambahkan, atau{' '}
+                  <strong>Centang</strong> kota dari untuk menambahkan, atau{' '}
                   <strong className="text-rose-700">Uncheck (hapus centang)</strong> kota yang sudah aktif untuk menghapusnya.
                 </div>
               </div>
@@ -429,15 +427,14 @@ export default function AddBranchCityModal({ isOpen, onClose, existingCities = [
                     return (
                       <label
                         key={city.code || city.name}
-                        className={`flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
-                          isBeingRemoved
+                        className={`flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer select-none ${isBeingRemoved
                             ? 'bg-rose-50 border-rose-300 text-rose-800'
                             : isBeingAdded
-                            ? 'bg-blue-50 border-blue-400 text-blue-900'
-                            : isChecked
-                            ? 'bg-emerald-50/70 border-emerald-300 text-emerald-900'
-                            : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
-                        }`}
+                              ? 'bg-blue-50 border-blue-400 text-blue-900'
+                              : isChecked
+                                ? 'bg-emerald-50/70 border-emerald-300 text-emerald-900'
+                                : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                          }`}
                       >
                         <div className="flex items-center gap-2">
                           <input
@@ -505,8 +502,8 @@ export default function AddBranchCityModal({ isOpen, onClose, existingCities = [
                   {submitting
                     ? 'Menyimpan...'
                     : toAdd.length > 0 || toRemove.length > 0
-                    ? `Simpan Perubahan (${toAdd.length > 0 ? `+${toAdd.length}` : ''}${toAdd.length > 0 && toRemove.length > 0 ? ' / ' : ''}${toRemove.length > 0 ? `-${toRemove.length}` : ''})`
-                    : 'Pilih / Uncheck Kota'}
+                      ? `Simpan Perubahan (${toAdd.length > 0 ? `+${toAdd.length}` : ''}${toAdd.length > 0 && toRemove.length > 0 ? ' / ' : ''}${toRemove.length > 0 ? `-${toRemove.length}` : ''})`
+                      : 'Pilih / Uncheck Kota'}
                 </button>
               </div>
             </div>
