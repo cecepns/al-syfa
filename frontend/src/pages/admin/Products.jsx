@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Plus, Edit2, Trash2, Tag, Layers, DollarSign } from 'lucide-react';
+import { Package, Plus, Edit2, Trash2, Tag, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
 import Modal from '../../components/common/Modal';
@@ -28,7 +28,7 @@ export default function Products() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [categorySubmitting, setCategorySubmitting] = useState(false);
 
-  // Form Modal State
+  // Form Modal State (Tanpa Harga Modal / HPP untuk Akun Admin)
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -37,7 +37,6 @@ export default function Products() {
     name: '',
     category: 'SNACK COKLAT',
     unit: 'pack',
-    cost_price: 10000,
     price: 15000,
     warehouse_stock: 100,
     description: ''
@@ -148,7 +147,6 @@ export default function Products() {
       name: '',
       category: categories[0]?.name || 'SNACK COKLAT',
       unit: 'pack',
-      cost_price: 10000,
       price: 15000,
       warehouse_stock: 100,
       description: '',
@@ -163,7 +161,6 @@ export default function Products() {
       name: p.name,
       category: p.category,
       unit: p.unit,
-      cost_price: p.cost_price,
       price: p.price,
       warehouse_stock: p.warehouse_stock,
       description: p.description || '',
@@ -285,7 +282,7 @@ export default function Products() {
         </div>
       </div>
 
-      {/* Products Table */}
+      {/* Products Table (Tanpa Kolom Harga Modal) */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -294,7 +291,6 @@ export default function Products() {
                 <th className="px-5 py-3">Kode</th>
                 <th className="px-5 py-3">Nama Produk</th>
                 <th className="px-5 py-3">Kategori</th>
-                <th className="px-5 py-3 text-right">Harga Modal</th>
                 <th className="px-5 py-3 text-right">Harga Jual</th>
                 <th className="px-5 py-3 text-center">Stok Gudang</th>
                 <th className="px-5 py-3 text-right">Aksi</th>
@@ -303,7 +299,7 @@ export default function Products() {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-slate-400">
+                  <td colSpan={6} className="px-5 py-8 text-center text-slate-400">
                     Memuat produk...
                   </td>
                 </tr>
@@ -337,9 +333,6 @@ export default function Products() {
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
                         {p.category}
                       </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-right font-medium text-slate-500">
-                      Rp {Number(p.cost_price).toLocaleString('id-ID')}
                     </td>
                     <td className="px-5 py-3.5 text-right font-black text-slate-900">
                       <button
@@ -386,7 +379,7 @@ export default function Products() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-slate-400">
+                  <td colSpan={6} className="px-5 py-8 text-center text-slate-400">
                     Tidak ada produk yang sesuai.
                   </td>
                 </tr>
@@ -407,7 +400,7 @@ export default function Products() {
         )}
       </div>
 
-      {/* Modal Add / Edit Product */}
+      {/* Modal Add / Edit Product (Tanpa Harga Modal) */}
       <Modal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -452,7 +445,7 @@ export default function Products() {
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Satuan *
@@ -463,17 +456,6 @@ export default function Products() {
                 value={form.unit}
                 onChange={(e) => setForm({ ...form, unit: e.target.value })}
                 placeholder="pack, pcs, box, karton"
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800"
-              />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Harga Modal (HPP Rp)
-              </label>
-              <input
-                type="number"
-                value={form.cost_price}
-                onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
                 className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800"
               />
             </div>
@@ -589,7 +571,7 @@ export default function Products() {
         </div>
       </Modal>
 
-      {/* Modal Cepat Ubah Harga Jual */}
+      {/* Modal Cepat Ubah Harga Jual (Tanpa Harga Modal) */}
       <Modal
         isOpen={pricingModalOpen}
         onClose={() => setPricingModalOpen(false)}
@@ -607,10 +589,6 @@ export default function Products() {
             <div className="flex justify-between">
               <span className="text-slate-500">Kode & Nama:</span>
               <span className="font-bold text-slate-800">{pricingProduct?.code} - {pricingProduct?.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Harga Pokok (HPP):</span>
-              <span className="font-bold text-slate-600 font-mono">Rp {Number(pricingProduct?.cost_price || 0).toLocaleString('id-ID')}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Harga Jual Saat Ini:</span>

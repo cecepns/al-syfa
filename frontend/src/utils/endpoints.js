@@ -43,6 +43,7 @@ export const API_ENDPOINTS = {
     DETAIL: (id) => `/users/${id}`,
     CREATE: "/users",
     UPDATE: (id) => `/users/${id}`,
+    UPDATE_SCHEDULE: (id) => `/users/${id}/work-schedule`,
     DELETE: (id) => `/users/${id}`,
   },
 
@@ -52,6 +53,7 @@ export const API_ENDPOINTS = {
     PURCHASE_HISTORY: (id) => `/customers/${id}/purchase-history`,
     CREATE: "/customers",
     UPDATE: (id) => `/customers/${id}`,
+    UPDATE_STATUS: (id) => `/customers/${id}/status`,
     DELETE: (id) => `/customers/${id}`,
   },
 
@@ -76,6 +78,7 @@ export const API_ENDPOINTS = {
     DETAIL: (id) => `/products/${id}`,
     CREATE: "/products",
     UPDATE: (id) => `/products/${id}`,
+    UPDATE_PRICING: (id) => `/products/${id}/pricing`,
     DELETE: (id) => `/products/${id}`,
   },
 
@@ -100,8 +103,11 @@ export const API_ENDPOINTS = {
   ATTENDANCES: {
     LIST: "/attendances",
     TODAY: "/attendances/today",
+    SCHEDULE: "/attendances/schedule",
     CLOCK_IN: "/attendances/clock-in",
     CLOCK_OUT: "/attendances/clock-out",
+    ADMIN_UPDATE: (id) => `/attendances/${id}`,
+    ADMIN_RECORD: "/attendances/admin-record",
   },
 
   PROMOTIONS: {
@@ -156,6 +162,13 @@ export const API_ENDPOINTS = {
   DASHBOARD: {
     STATS: "/dashboard/stats",
     SALES_PERFORMANCE: "/reports/sales-performance",
+  },
+
+  BRANCHES: {
+    LIST: "/branches",
+    CREATE: "/branches",
+    BATCH: "/branches/batch",
+    DELETE: (id) => `/branches/${id}`,
   },
 
   OWNER: {

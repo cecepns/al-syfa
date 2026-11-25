@@ -98,7 +98,9 @@ export default function SalesHome() {
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-emerald-300" />
             <div>
-              <p className="text-[10px] text-emerald-200">Status Absensi (08.00 - 15.00)</p>
+              <p className="text-[10px] text-emerald-200">
+                Status Absensi ({attendance?.schedule?.work_start_time?.substring(0, 5) || '08:00'} - {attendance?.schedule?.work_end_time?.substring(0, 5) || '15:00'})
+              </p>
               <p className="text-xs font-bold">
                 {attendance?.clock_in_time
                   ? `Masuk: ${attendance.clock_in_time.substring(0, 5)} WIB (${attendance.status})`

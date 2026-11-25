@@ -85,11 +85,45 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
-// Test Database Connection
+// Test Database Connection & Auto-Ensure Schema Upgrades (v4)
+async function ensureSchemaUpgrades() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS branch_cities (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        city_name VARCHAR(100) NOT NULL UNIQUE,
+        province_name VARCHAR(100) NOT NULL DEFAULT 'Jawa Timur',
+        regency_code VARCHAR(20) NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        notes VARCHAR(255) NULL,
+        created_by INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    const [userCols] = await pool.query("SHOW COLUMNS FROM users LIKE 'work_start_time'");
+    if (userCols.length === 0) {
+      await pool.query("ALTER TABLE users ADD COLUMN work_start_time TIME NOT NULL DEFAULT '08:00:00' AFTER vehicle_number");
+    }
+    const [userEndCols] = await pool.query("SHOW COLUMNS FROM users LIKE 'work_end_time'");
+    if (userEndCols.length === 0) {
+      await pool.query("ALTER TABLE users ADD COLUMN work_end_time TIME NOT NULL DEFAULT '15:00:00' AFTER work_start_time");
+    }
+    const [custLabelCols] = await pool.query("SHOW COLUMNS FROM customers LIKE 'store_label'");
+    if (custLabelCols.length === 0) {
+      await pool.query("ALTER TABLE customers ADD COLUMN store_label VARCHAR(50) NULL DEFAULT NULL AFTER shop_type");
+    }
+  } catch (err) {
+    console.warn('Schema auto-upgrade notice:', err.message);
+  }
+}
+
 pool.getConnection()
   .then(conn => {
     console.log('✅ Connected to MySQL Database:', process.env.DB_NAME || 'alsyifa_sales_db');
     conn.release();
+    ensureSchemaUpgrades();
   })
   .catch(err => {
     console.error('❌ Database connection failed:', err.message);
@@ -174,6 +208,46 @@ const fallbackWilayah = {
     { code: '32.76', name: 'Kota Depok' },
     { code: '32.04', name: 'Kabupaten Bandung' }
   ],
+  regencies_35: [
+    { code: '35.01', name: 'Kabupaten Pacitan' },
+    { code: '35.02', name: 'Kabupaten Ponorogo' },
+    { code: '35.03', name: 'Kabupaten Trenggalek' },
+    { code: '35.04', name: 'Kabupaten Tulungagung' },
+    { code: '35.05', name: 'Kabupaten Blitar' },
+    { code: '35.06', name: 'Kabupaten Kediri' },
+    { code: '35.07', name: 'Kabupaten Malang' },
+    { code: '35.08', name: 'Kabupaten Lumajang' },
+    { code: '35.09', name: 'Kabupaten Jember' },
+    { code: '35.10', name: 'Kabupaten Banyuwangi' },
+    { code: '35.11', name: 'Kabupaten Bondowoso' },
+    { code: '35.12', name: 'Kabupaten Situbondo' },
+    { code: '35.13', name: 'Kabupaten Probolinggo' },
+    { code: '35.14', name: 'Kabupaten Pasuruan' },
+    { code: '35.15', name: 'Kabupaten Sidoarjo' },
+    { code: '35.16', name: 'Kabupaten Mojokerto' },
+    { code: '35.17', name: 'Kabupaten Jombang' },
+    { code: '35.18', name: 'Kabupaten Nganjuk' },
+    { code: '35.19', name: 'Kabupaten Madiun' },
+    { code: '35.20', name: 'Kabupaten Magetan' },
+    { code: '35.21', name: 'Kabupaten Ngawi' },
+    { code: '35.22', name: 'Kabupaten Bojonegoro' },
+    { code: '35.23', name: 'Kabupaten Tuban' },
+    { code: '35.24', name: 'Kabupaten Lamongan' },
+    { code: '35.25', name: 'Kabupaten Gresik' },
+    { code: '35.26', name: 'Kabupaten Bangkalan' },
+    { code: '35.27', name: 'Kabupaten Sampang' },
+    { code: '35.28', name: 'Kabupaten Pamekasan' },
+    { code: '35.29', name: 'Kabupaten Sumenep' },
+    { code: '35.71', name: 'Kota Kediri' },
+    { code: '35.72', name: 'Kota Blitar' },
+    { code: '35.73', name: 'Kota Malang' },
+    { code: '35.74', name: 'Kota Probolinggo' },
+    { code: '35.75', name: 'Kota Pasuruan' },
+    { code: '35.76', name: 'Kota Mojokerto' },
+    { code: '35.77', name: 'Kota Madiun' },
+    { code: '35.78', name: 'Kota Surabaya' },
+    { code: '35.79', name: 'Kota Batu' }
+  ],
   districts_32_01: [
     { code: '32.01.01', name: 'Cibinong' },
     { code: '32.01.02', name: 'Gunungputri' },
@@ -252,10 +326,18 @@ app.get('/api/wilayah/regencies/:provinceCode', async (req, res) => {
       wilayahCache.regencies[provinceCode] = response.data.data;
       return successResponse(res, response.data.data);
     }
-    const fallback = provinceCode === '32' ? fallbackWilayah.regencies_32 : [];
+    const fallback = provinceCode === '35'
+      ? fallbackWilayah.regencies_35
+      : provinceCode === '32'
+      ? fallbackWilayah.regencies_32
+      : [];
     return successResponse(res, fallback);
   } catch (err) {
-    const fallback = provinceCode === '32' ? fallbackWilayah.regencies_32 : [];
+    const fallback = provinceCode === '35'
+      ? fallbackWilayah.regencies_35
+      : provinceCode === '32'
+      ? fallbackWilayah.regencies_32
+      : [];
     return successResponse(res, fallback);
   }
 });
@@ -358,7 +440,9 @@ app.post('/api/auth/login', async (req, res) => {
       phone: user.phone,
       avatar: user.avatar,
       vehicle_type: user.vehicle_type,
-      vehicle_number: user.vehicle_number
+      vehicle_number: user.vehicle_number,
+      work_start_time: user.work_start_time || '08:00:00',
+      work_end_time: user.work_end_time || '15:00:00'
     };
 
     return successResponse(res, { token, user: userData }, null, 'Login berhasil');
@@ -434,7 +518,9 @@ app.post('/api/auth/google', async (req, res) => {
       phone: user.phone,
       avatar: user.avatar,
       vehicle_type: user.vehicle_type,
-      vehicle_number: user.vehicle_number
+      vehicle_number: user.vehicle_number,
+      work_start_time: user.work_start_time || '08:00:00',
+      work_end_time: user.work_end_time || '15:00:00'
     };
 
     return successResponse(res, { token, user: userData }, null, `Selamat datang, ${user.name}! Login Google berhasil.`);
@@ -448,7 +534,7 @@ app.post('/api/auth/google', async (req, res) => {
 app.get('/api/auth/profile', authenticateToken, async (req, res) => {
   try {
     const [users] = await pool.query(
-      'SELECT id, name, username, email, role, phone, avatar, vehicle_type, vehicle_number, created_at FROM users WHERE id = ?',
+      'SELECT id, name, username, email, role, phone, avatar, vehicle_type, vehicle_number, work_start_time, work_end_time, created_at FROM users WHERE id = ?',
       [req.user.id]
     );
     if (users.length === 0) {
@@ -471,7 +557,7 @@ app.get('/api/users', authenticateToken, async (req, res) => {
     const search = req.query.search ? `%${req.query.search}%` : '%';
     const role = req.query.role || null;
 
-    let query = 'SELECT id, name, username, email, role, phone, avatar, vehicle_type, vehicle_number, is_active, created_at FROM users WHERE (name LIKE ? OR username LIKE ? OR phone LIKE ?)';
+    let query = 'SELECT id, name, username, email, role, phone, avatar, vehicle_type, vehicle_number, work_start_time, work_end_time, is_active, created_at FROM users WHERE (name LIKE ? OR username LIKE ? OR phone LIKE ?)';
     let params = [search, search, search];
 
     if (role) {
@@ -508,16 +594,19 @@ app.get('/api/users', authenticateToken, async (req, res) => {
 // POST /api/users
 app.post('/api/users', authenticateToken, async (req, res) => {
   try {
-    const { name, username, email, password, role, phone, vehicle_type, vehicle_number } = req.body;
+    const { name, username, email, password, role, phone, vehicle_type, vehicle_number, work_start_time, work_end_time } = req.body;
     if (!name || !username || !email || !password) {
       return errorResponse(res, 'Semua data wajib diisi', 400);
     }
 
+    const startTime = req.user.role === 'admin' && work_start_time ? work_start_time : '08:00:00';
+    const endTime = req.user.role === 'admin' && work_end_time ? work_end_time : '15:00:00';
+
     const hashedPassword = await bcrypt.hash(password, 10);
     const [result] = await pool.query(
-      `INSERT INTO users (name, username, email, password, role, phone, vehicle_type, vehicle_number, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [name, username, email, hashedPassword, role || 'sales', phone || null, vehicle_type || 'van', vehicle_number || null]
+      `INSERT INTO users (name, username, email, password, role, phone, vehicle_type, vehicle_number, work_start_time, work_end_time, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      [name, username, email, hashedPassword, role || 'sales', phone || null, vehicle_type || 'van', vehicle_number || null, startTime, endTime]
     );
 
     return successResponse(res, { id: result.insertId, name, username, email, role }, null, 'User berhasil ditambahkan');
@@ -530,10 +619,22 @@ app.post('/api/users', authenticateToken, async (req, res) => {
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, phone, role, vehicle_type, vehicle_number, password, is_active } = req.body;
+    const { name, email, phone, role, vehicle_type, vehicle_number, password, is_active, work_start_time, work_end_time } = req.body;
 
     let query = 'UPDATE users SET name = ?, email = ?, phone = ?, role = ?, vehicle_type = ?, vehicle_number = ?, is_active = ?';
     let params = [name, email, phone, role, vehicle_type, vehicle_number, is_active !== undefined ? is_active : 1];
+
+    // Hanya Admin yang bisa atur jadwal jam masuk & pulang per sales
+    if (req.user.role === 'admin') {
+      if (work_start_time) {
+        query += ', work_start_time = ?';
+        params.push(work_start_time);
+      }
+      if (work_end_time) {
+        query += ', work_end_time = ?';
+        params.push(work_end_time);
+      }
+    }
 
     if (password) {
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -546,6 +647,37 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
 
     await pool.query(query, params);
     return successResponse(res, { id }, null, 'User berhasil diperbarui');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/users/:id/work-schedule (KHUSUS ADMIN: Atur Jam Masuk & Pulang per Sales)
+app.put('/api/users/:id/work-schedule', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya akun Admin yang dapat mengatur jadwal jam masuk & pulang sales', 403);
+    }
+    const { id } = req.params;
+    const { work_start_time, work_end_time, apply_to_all_sales } = req.body;
+
+    if (!work_start_time || !work_end_time) {
+      return errorResponse(res, 'Jam masuk dan jam pulang wajib diisi', 400);
+    }
+
+    if (apply_to_all_sales) {
+      await pool.query(
+        "UPDATE users SET work_start_time = ?, work_end_time = ? WHERE role = 'sales'",
+        [work_start_time, work_end_time]
+      );
+      return successResponse(res, { work_start_time, work_end_time }, null, 'Jadwal jam kerja berhasil diterapkan untuk semua sales');
+    }
+
+    await pool.query(
+      'UPDATE users SET work_start_time = ?, work_end_time = ? WHERE id = ?',
+      [work_start_time, work_end_time, id]
+    );
+    return successResponse(res, { id, work_start_time, work_end_time }, null, 'Jadwal jam kerja sales berhasil diperbarui');
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -574,9 +706,11 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
     const shopType = req.query.shop_type || null;
     const districtName = req.query.district_name || null;
     const villageName = req.query.village_name || null;
+    const isActive = req.query.is_active;
+    const storeLabel = req.query.store_label || null;
 
-    let whereClause = 'WHERE (c.name LIKE ? OR c.code LIKE ? OR c.owner_name LIKE ? OR c.address LIKE ? OR c.phone LIKE ?)';
-    let params = [search, search, search, search, search];
+    let whereClause = 'WHERE (c.name LIKE ? OR c.code LIKE ? OR c.owner_name LIKE ? OR c.address LIKE ? OR c.phone LIKE ? OR IFNULL(c.store_label, "") LIKE ? OR IFNULL(c.notes, "") LIKE ?)';
+    let params = [search, search, search, search, search, search, search];
 
     const salesId = req.query.sales_id || null;
     if (salesId && salesId !== 'all') {
@@ -599,6 +733,14 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
     if (villageName) {
       whereClause += ' AND c.village_name = ?';
       params.push(villageName);
+    }
+    if (isActive !== undefined && isActive !== '' && isActive !== 'all') {
+      whereClause += ' AND c.is_active = ?';
+      params.push(parseInt(isActive));
+    }
+    if (storeLabel) {
+      whereClause += ' AND c.store_label = ?';
+      params.push(storeLabel);
     }
 
     const [countResult] = await pool.query(
@@ -668,38 +810,40 @@ app.get('/api/customers/:id', authenticateToken, async (req, res) => {
 app.post('/api/customers', authenticateToken, async (req, res) => {
   try {
     const {
-      name, owner_name, shop_type, phone, address,
+      name, owner_name, shop_type, store_label, phone, address,
       province_code, province_name, regency_code, regency_name,
       district_code, district_name, village_code, village_name,
-      latitude, longitude, image, credit_limit, notes, sales_id
+      latitude, longitude, image, credit_limit, notes, sales_id, is_active
     } = req.body;
 
     if (!name || !phone || !address) {
       return errorResponse(res, 'Nama toko, no telepon, dan alamat wajib diisi', 400);
     }
 
-    // Auto-generate customer code CST-XXX
-    const [countRow] = await pool.query('SELECT COUNT(*) as count FROM customers');
-    const code = `CST-${String(countRow[0].count + 1).padStart(3, '0')}`;
+    // Auto-generate customer code CST-XXX (use MAX id + 1 to avoid duplicate after delete)
+    const [maxRow] = await pool.query('SELECT IFNULL(MAX(id), 0) as maxId FROM customers');
+    const code = `CST-${String(maxRow[0].maxId + 1).padStart(3, '0')}`;
 
     const savedImage = saveBase64Image(image, 'customer');
+    const assignedSalesId = sales_id || (req.user.role === 'sales' ? req.user.id : null);
+    const activeStatus = is_active !== undefined ? (is_active ? 1 : 0) : 1;
 
     const [result] = await pool.query(
       `INSERT INTO customers (
-        code, name, owner_name, shop_type, phone, address,
+        code, name, owner_name, shop_type, store_label, phone, address,
         province_code, province_name, regency_code, regency_name,
         district_code, district_name, village_code, village_name,
-        latitude, longitude, image, credit_limit, notes, sales_id, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        latitude, longitude, image, credit_limit, notes, sales_id, created_by, is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        code, name, owner_name || null, shop_type || 'ritel', phone, address,
-        province_code || '32', province_name || 'Jawa Barat',
-        regency_code || '32.01', regency_name || 'Kabupaten Bogor',
+        code, name, owner_name || null, shop_type || 'ritel', store_label || null, phone, address,
+        province_code || '35', province_name || 'Jawa Timur',
+        regency_code || '35.78', regency_name || 'Kota Surabaya',
         district_code || null, district_name || '',
         village_code || null, village_name || '',
         latitude || null, longitude || null,
         savedImage || null, credit_limit || 0, notes || null,
-        sales_id || null, req.user.id
+        assignedSalesId, req.user.id, activeStatus
       ]
     );
 
@@ -713,8 +857,14 @@ app.post('/api/customers', authenticateToken, async (req, res) => {
 app.put('/api/customers/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const [existingRows] = await pool.query('SELECT * FROM customers WHERE id = ?', [id]);
+    if (existingRows.length === 0) {
+      return errorResponse(res, 'Data toko tidak ditemukan', 404);
+    }
+    const existing = existingRows[0];
+
     const {
-      name, owner_name, shop_type, phone, address,
+      name, owner_name, shop_type, store_label, phone, address,
       province_code, province_name, regency_code, regency_name,
       district_code, district_name, village_code, village_name,
       latitude, longitude, image, credit_limit, notes, is_active, sales_id
@@ -724,17 +874,32 @@ app.put('/api/customers/:id', authenticateToken, async (req, res) => {
 
     let query = `
       UPDATE customers SET
-        name = ?, owner_name = ?, shop_type = ?, phone = ?, address = ?,
+        name = ?, owner_name = ?, shop_type = ?, store_label = ?, phone = ?, address = ?,
         province_code = ?, province_name = ?, regency_code = ?, regency_name = ?,
         district_code = ?, district_name = ?, village_code = ?, village_name = ?,
         latitude = ?, longitude = ?, credit_limit = ?, notes = ?, is_active = ?, sales_id = ?
     `;
     let params = [
-      name, owner_name, shop_type, phone, address,
-      province_code, province_name, regency_code, regency_name,
-      district_code, district_name, village_code, village_name,
-      latitude, longitude, credit_limit || 0, notes,
-      is_active !== undefined ? is_active : 1, sales_id || null
+      name !== undefined ? name : existing.name,
+      owner_name !== undefined ? owner_name : existing.owner_name,
+      shop_type !== undefined ? shop_type : existing.shop_type,
+      store_label !== undefined ? (store_label || null) : existing.store_label,
+      phone !== undefined ? phone : existing.phone,
+      address !== undefined ? address : existing.address,
+      province_code !== undefined ? province_code : existing.province_code,
+      province_name !== undefined ? province_name : existing.province_name,
+      regency_code !== undefined ? regency_code : existing.regency_code,
+      regency_name !== undefined ? regency_name : existing.regency_name,
+      district_code !== undefined ? district_code : existing.district_code,
+      district_name !== undefined ? district_name : existing.district_name,
+      village_code !== undefined ? village_code : existing.village_code,
+      village_name !== undefined ? village_name : existing.village_name,
+      latitude !== undefined ? latitude : existing.latitude,
+      longitude !== undefined ? longitude : existing.longitude,
+      credit_limit !== undefined ? credit_limit : existing.credit_limit,
+      notes !== undefined ? notes : existing.notes,
+      is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+      sales_id !== undefined ? (sales_id || null) : existing.sales_id
     ];
 
     if (savedImage) {
@@ -747,6 +912,24 @@ app.put('/api/customers/:id', authenticateToken, async (req, res) => {
 
     await pool.query(query, params);
     return successResponse(res, { id }, null, 'Data toko berhasil diperbarui');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/customers/:id/status (Toggle Status Aktif / Tidak Aktif Toko)
+app.put('/api/customers/:id/status', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_active } = req.body;
+    const nextStatus = is_active ? 1 : 0;
+    await pool.query('UPDATE customers SET is_active = ? WHERE id = ?', [nextStatus, id]);
+    return successResponse(
+      res,
+      { id, is_active: nextStatus },
+      null,
+      `Status toko diubah menjadi ${nextStatus ? 'Aktif' : 'Tidak Aktif'}`
+    );
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -1143,7 +1326,12 @@ app.get('/api/products', authenticateToken, async (req, res) => {
       [...params, limit, offset]
     );
 
-    return successResponse(res, rows, {
+    // Sembunyikan Harga Modal (cost_price) dari akun Admin & Sales
+    const sanitizedRows = req.user.role === 'owner'
+      ? rows
+      : rows.map(({ cost_price, ...rest }) => rest);
+
+    return successResponse(res, sanitizedRows, {
       page,
       limit,
       total,
@@ -1162,11 +1350,12 @@ app.post('/api/products', authenticateToken, async (req, res) => {
       return errorResponse(res, 'Kode, nama, dan harga produk wajib diisi', 400);
     }
     const savedImage = saveBase64Image(image, 'product');
+    const hpp = req.user.role === 'owner' && cost_price !== undefined ? cost_price : 0;
 
     const [result] = await pool.query(
       `INSERT INTO products (code, name, category, unit, cost_price, price, warehouse_stock, image, description)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [code, name, category || 'Herbal Alami', unit || 'botol', cost_price || 0, price, warehouse_stock || 0, savedImage || null, description || null]
+      [code, name, category || 'SNACK COKLAT', unit || 'pack', hpp, price, warehouse_stock || 0, savedImage || null, description || null]
     );
 
     return successResponse(res, { id: result.insertId, code, name }, null, 'Produk berhasil ditambahkan');
@@ -1182,8 +1371,14 @@ app.put('/api/products/:id', authenticateToken, async (req, res) => {
     const { code, name, category, unit, cost_price, price, warehouse_stock, image, description, is_active } = req.body;
     const savedImage = saveBase64Image(image, 'product');
 
-    let query = 'UPDATE products SET code = ?, name = ?, category = ?, unit = ?, cost_price = ?, price = ?, warehouse_stock = ?, description = ?, is_active = ?';
-    let params = [code, name, category, unit, cost_price, price, warehouse_stock, description, is_active !== undefined ? is_active : 1];
+    let query = 'UPDATE products SET code = ?, name = ?, category = ?, unit = ?, price = ?, warehouse_stock = ?, description = ?, is_active = ?';
+    let params = [code, name, category, unit, price, warehouse_stock, description, is_active !== undefined ? is_active : 1];
+
+    // Hanya Owner yang boleh mengubah cost_price saat edit produk
+    if (req.user.role === 'owner' && cost_price !== undefined && cost_price !== '') {
+      query += ', cost_price = ?';
+      params.push(parseFloat(cost_price));
+    }
 
     if (savedImage) {
       query += ', image = ?';
@@ -1600,7 +1795,7 @@ app.get('/api/attendances', authenticateToken, async (req, res) => {
     const total = countResult[0].total;
 
     const [rows] = await pool.query(
-      `SELECT a.*, u.name as sales_name, u.vehicle_type, u.vehicle_number
+      `SELECT a.*, u.name as sales_name, u.vehicle_type, u.vehicle_number, u.work_start_time, u.work_end_time
        FROM attendances a
        JOIN users u ON a.sales_id = u.id
        ${whereClause}
@@ -1620,18 +1815,45 @@ app.get('/api/attendances', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/attendances/schedule (Daftar Jadwal Jam Masuk & Pulang Per Sales)
+app.get('/api/attendances/schedule', authenticateToken, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, username, vehicle_type, vehicle_number, work_start_time, work_end_time, is_active
+       FROM users
+       WHERE role = 'sales'
+       ORDER BY name ASC`
+    );
+    return successResponse(res, rows);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
 // GET /api/attendances/today
 app.get('/api/attendances/today', authenticateToken, async (req, res) => {
   try {
     const salesId = req.user.id;
     const today = new Date().toISOString().split('T')[0];
 
+    const [userRows] = await pool.query(
+      'SELECT work_start_time, work_end_time FROM users WHERE id = ?',
+      [salesId]
+    );
+    const schedule = {
+      work_start_time: userRows[0]?.work_start_time || '08:00:00',
+      work_end_time: userRows[0]?.work_end_time || '15:00:00'
+    };
+
     const [rows] = await pool.query(
       'SELECT * FROM attendances WHERE sales_id = ? AND date = ?',
       [salesId, today]
     );
 
-    return successResponse(res, rows.length > 0 ? rows[0] : null);
+    if (rows.length > 0) {
+      return successResponse(res, { ...rows[0], schedule });
+    }
+    return successResponse(res, { clock_in_time: null, clock_out_time: null, schedule });
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -1657,12 +1879,17 @@ app.post('/api/attendances/clock-in', authenticateToken, async (req, res) => {
       return errorResponse(res, 'Anda sudah melakukan absensi masuk hari ini', 400);
     }
 
+    // Ambil jadwal jam masuk per sales dari tabel users (default 08:00)
+    const [userRows] = await pool.query('SELECT work_start_time FROM users WHERE id = ?', [salesId]);
+    const startStr = (userRows[0]?.work_start_time || '08:00:00').toString();
+    const [startH, startM] = startStr.split(':').map((n) => parseInt(n, 10) || 0);
+
     const savedSelfie = saveBase64Image(selfie_image, 'selfie-in');
 
-    // Attendance status: 08:00 cutoff
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const status = (hours > 8 || (hours === 8 && minutes > 15)) ? 'terlambat' : 'hadir';
+    // Toleransi keterlambatan 15 menit dari jam masuk masing-masing sales
+    const currentTotalMin = now.getHours() * 60 + now.getMinutes();
+    const startTotalMin = startH * 60 + startM + 15;
+    const status = currentTotalMin > startTotalMin ? 'terlambat' : 'hadir';
 
     const [result] = await pool.query(
       `INSERT INTO attendances (
@@ -1709,12 +1936,18 @@ app.post('/api/attendances/clock-out', authenticateToken, async (req, res) => {
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
 
-    // CRITICAL REQUIREMENT CHECK:
-    // "Absensi : 08.00 – 15.00 seles tidak bisa absen pulang sebelum jam 15.00 di area kerja."
-    if (currentHour < 15 && !bypass_time_check) {
+    // Ambil jadwal jam pulang per sales dari tabel users (default 15:00)
+    const [userRows] = await pool.query('SELECT work_end_time FROM users WHERE id = ?', [salesId]);
+    const endStr = (userRows[0]?.work_end_time || '15:00:00').toString();
+    const [endH, endM] = endStr.split(':').map((n) => parseInt(n, 10) || 0);
+
+    const currentTotalMin = currentHour * 60 + currentMinute;
+    const endTotalMin = endH * 60 + endM;
+
+    if (currentTotalMin < endTotalMin && !bypass_time_check) {
       return errorResponse(
         res,
-        `Tidak bisa absen pulang sebelum jam 15.00! Waktu saat ini: ${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}. Silakan selesaikan kunjungan rute kerja Anda terlebih dahulu.`,
+        `Tidak bisa absen pulang sebelum jam ${String(endH).padStart(2, '0')}.${String(endM).padStart(2, '0')}! Waktu saat ini: ${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}. Silakan selesaikan kunjungan rute kerja Anda terlebih dahulu.`,
         400
       );
     }
@@ -1742,6 +1975,70 @@ app.post('/api/attendances/clock-out', authenticateToken, async (req, res) => {
       id: existing[0].id,
       clock_out_time: clockOutTime
     }, null, 'Absen pulang berhasil dicatat. Terima kasih atas kerja keras Anda hari ini!');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/attendances/:id (KHUSUS ADMIN: Edit Jam Masuk, Jam Pulang & Status Absen)
+app.put('/api/attendances/:id', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya akun Admin yang dapat mengedit jam absensi', 403);
+    }
+    const { id } = req.params;
+    const { clock_in_time, clock_out_time, status, notes } = req.body;
+
+    const [existingRows] = await pool.query('SELECT * FROM attendances WHERE id = ?', [id]);
+    if (existingRows.length === 0) {
+      return errorResponse(res, 'Data absensi tidak ditemukan', 404);
+    }
+    const existing = existingRows[0];
+
+    await pool.query(
+      `UPDATE attendances SET
+        clock_in_time = ?, clock_out_time = ?, status = ?, notes = ?
+       WHERE id = ?`,
+      [
+        clock_in_time || existing.clock_in_time,
+        clock_out_time === '' ? null : (clock_out_time !== undefined ? clock_out_time : existing.clock_out_time),
+        status || existing.status,
+        notes !== undefined ? notes : existing.notes,
+        id
+      ]
+    );
+
+    return successResponse(res, { id }, null, 'Data jam absensi berhasil diperbarui oleh Admin');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// POST /api/attendances/admin-record (KHUSUS ADMIN: Input / Atur Absen Manual Sales)
+app.post('/api/attendances/admin-record', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya akun Admin yang dapat mengatur absensi manual', 403);
+    }
+    const { sales_id, date, clock_in_time, clock_out_time, status, notes } = req.body;
+    if (!sales_id || !date || !clock_in_time) {
+      return errorResponse(res, 'Sales, tanggal, dan jam masuk wajib diisi', 400);
+    }
+
+    await pool.query(
+      `INSERT INTO attendances (
+        sales_id, date, clock_in_time, clock_in_lat, clock_in_lng, clock_in_address,
+        clock_out_time, status, notes
+      ) VALUES (?, ?, ?, -6.482000, 106.845000, 'Diatur Manual oleh Admin', ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        clock_in_time = VALUES(clock_in_time),
+        clock_out_time = VALUES(clock_out_time),
+        status = VALUES(status),
+        notes = VALUES(notes)`,
+      [sales_id, date, clock_in_time, clock_out_time || null, status || 'hadir', notes || 'Diatur oleh Admin']
+    );
+
+    return successResponse(res, { sales_id, date }, null, 'Data absensi sales berhasil disimpan oleh Admin');
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -2762,6 +3059,26 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
       };
     });
 
+    // Gabungkan daftar kota/cabang yang ditambahkan Owner di tabel branch_cities
+    const [registeredBranches] = await pool.query(
+      'SELECT city_name FROM branch_cities WHERE is_active = 1 ORDER BY city_name ASC'
+    ).catch(() => [[]]);
+
+    for (const rb of registeredBranches) {
+      if (!branchReports.some(b => b.branch_city.toLowerCase() === rb.city_name.toLowerCase())) {
+        branchReports.push({
+          branch_city: rb.city_name,
+          total_customers: 0,
+          total_orders: 0,
+          revenue: 0,
+          collected: 0,
+          cogs: 0,
+          profit: 0,
+          margin_percent: 0
+        });
+      }
+    }
+
     // 4. GRAFIK PERTUMBUHAN BULANAN
     const [monthlyRows] = await pool.query(
       `SELECT 
@@ -3512,11 +3829,15 @@ app.get('/api/targets/cities', authenticateToken, async (req, res) => {
       `SELECT DISTINCT city_name FROM city_targets WHERE month = ?`,
       [month]
     );
+    const [branchCities] = await pool.query(
+      `SELECT DISTINCT city_name FROM branch_cities WHERE is_active = 1`
+    ).catch(() => [[]]);
 
     const uniqueCityNames = Array.from(
       new Set([
         ...custCities.map((c) => c.city_name),
         ...targetCities.map((t) => t.city_name),
+        ...branchCities.map((b) => b.city_name),
         'Kabupaten Bogor'
       ])
     ).filter(Boolean).sort();
@@ -3681,6 +4002,95 @@ app.put('/api/products/:id/pricing', authenticateToken, async (req, res) => {
     }
 
     return successResponse(res, { id, price, cost_price }, null, 'Harga jual & HPP produk berhasil diperbarui');
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// ========================================================
+// BRANCH CITIES MANAGEMENT (Owner Menambah Kota / Cabang)
+// ========================================================
+// GET /api/branches
+app.get('/api/branches', authenticateToken, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT * FROM branch_cities WHERE is_active = 1 ORDER BY province_name ASC, city_name ASC'
+    );
+    return successResponse(res, rows);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// POST /api/branches (Tambah 1 Kota/Cabang - Owner)
+app.post('/api/branches', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner yang dapat menambah kota / cabang operasional', 403);
+    }
+    const { city_name, province_name, regency_code, notes } = req.body;
+    if (!city_name || !city_name.trim()) {
+      return errorResponse(res, 'Nama kota / kabupaten wajib diisi', 400);
+    }
+
+    await pool.query(
+      `INSERT INTO branch_cities (city_name, province_name, regency_code, is_active, notes, created_by)
+       VALUES (?, ?, ?, 1, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         province_name = VALUES(province_name),
+         regency_code = IFNULL(VALUES(regency_code), regency_code),
+         is_active = 1,
+         notes = IFNULL(VALUES(notes), notes)`,
+      [city_name.trim(), province_name || 'Jawa Timur', regency_code || null, notes || null, req.user.id]
+    );
+
+    return successResponse(res, { city_name: city_name.trim(), province_name: province_name || 'Jawa Timur' }, null, `Kota/Cabang "${city_name.trim()}" berhasil ditambahkan!`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// POST /api/branches/batch (Tambah Banyak Kota Sekaligus, mis. All Jawa Timur)
+app.post('/api/branches/batch', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner yang dapat menambah kota / cabang operasional', 403);
+    }
+    const { cities } = req.body;
+    if (!Array.isArray(cities) || cities.length === 0) {
+      return errorResponse(res, 'Daftar kota tidak boleh kosong', 400);
+    }
+
+    let insertedCount = 0;
+    for (const c of cities) {
+      const cityName = (c.city_name || c.name || '').trim();
+      if (!cityName) continue;
+      await pool.query(
+        `INSERT INTO branch_cities (city_name, province_name, regency_code, is_active, created_by)
+         VALUES (?, ?, ?, 1, ?)
+         ON DUPLICATE KEY UPDATE
+           is_active = 1,
+           regency_code = IFNULL(VALUES(regency_code), regency_code)`,
+        [cityName, c.province_name || c.province || 'Jawa Timur', c.regency_code || c.code || null, req.user.id]
+      );
+      insertedCount++;
+    }
+
+    return successResponse(res, { count: insertedCount }, null, `${insertedCount} Kota/Cabang berhasil ditambahkan!`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// DELETE /api/branches/:id
+app.delete('/api/branches/:id', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner') {
+      return errorResponse(res, 'Hanya Owner yang dapat menghapus kota / cabang', 403);
+    }
+    const { id } = req.params;
+    await pool.query('DELETE FROM branch_cities WHERE id = ?', [id]);
+    return successResponse(res, { id }, null, 'Kota/Cabang berhasil dihapus');
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }

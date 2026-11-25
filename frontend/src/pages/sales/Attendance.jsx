@@ -7,7 +7,7 @@ import {
   AlertTriangle,
   Calendar,
   ShieldAlert,
-  ArrowRight
+  Bell
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import MobileLayout from '../../components/layout/MobileLayout';
@@ -16,12 +16,24 @@ import { request } from '../../utils/request';
 import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 import { useGeolocation } from '../../hooks/useGeolocation';
 
+function parseHHMMToMinutes(str, defH, defM) {
+  if (!str) return defH * 60 + defM;
+  const parts = String(str).split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  return (isNaN(h) ? defH : h) * 60 + (isNaN(m) ? defM : m);
+}
+
 export default function Attendance() {
+  const user = JSON.parse(localStorage.getItem('alsyifa_user') || '{}');
   const [attendance, setAttendance] = useState(null);
   const [loading, setLoading] = useState(true);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraType, setCameraType] = useState('in'); // 'in' or 'out'
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [notifPerm, setNotifPerm] = useState(
+    typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+  );
 
   const geo = useGeolocation();
 
@@ -47,17 +59,26 @@ export default function Attendance() {
     }
   };
 
+  const workStartStr = attendance?.schedule?.work_start_time || user?.work_start_time || '08:00:00';
+  const workEndStr = attendance?.schedule?.work_end_time || user?.work_end_time || '15:00:00';
+  const workStartLabel = String(workStartStr).substring(0, 5);
+  const workEndLabel = String(workEndStr).substring(0, 5);
+  const endMinutes = parseHHMMToMinutes(workEndStr, 15, 0);
+
+  const hours = currentTime.getHours();
+  const minutes = currentTime.getMinutes();
+  const currentMinutes = hours * 60 + minutes;
+  const isBeforeWorkEnd = currentMinutes < endMinutes;
+
   const handleOpenClockIn = () => {
     setCameraType('in');
     setCameraOpen(true);
   };
 
   const handleOpenClockOut = () => {
-    const hours = currentTime.getHours();
-    // Rule: "Absensi : 08.00 – 15.00 seles tidak bisa absen pulang sebelum jam 15.00 di area kerja."
-    if (hours < 15) {
+    if (isBeforeWorkEnd) {
       toast.error(
-        `Sales tidak bisa absen pulang sebelum jam 15.00 di area kerja! (Saat ini pukul ${String(hours).padStart(2, '0')}:${String(currentTime.getMinutes()).padStart(2, '0')})`,
+        `Sales tidak bisa absen pulang sebelum jam ${workEndLabel} WIB di area kerja! (Saat ini pukul ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')})`,
         { duration: 5000 }
       );
       return;
@@ -82,15 +103,26 @@ export default function Attendance() {
         const res = await request.post(API_ENDPOINTS.ATTENDANCES.CLOCK_OUT, payload);
         toast.success(res.message || 'Absen pulang berhasil!');
       }
-      fetchTodayAttendance();
+      await fetchTodayAttendance();
+      window.dispatchEvent(new Event('alsyifa-attendance-updated'));
     } catch (err) {
       toast.error(err.message || 'Gagal melakukan absensi');
     }
   };
 
-  const hours = currentTime.getHours();
-  const minutes = currentTime.getMinutes();
-  const isBefore15 = hours < 15;
+  const handleRequestNotif = async () => {
+    if (typeof Notification === 'undefined') {
+      toast.error('Browser tidak mendukung notifikasi pengingat');
+      return;
+    }
+    const res = await Notification.requestPermission();
+    setNotifPerm(res);
+    if (res === 'granted') {
+      toast.success('Notifikasi pengingat jam masuk & pulang diaktifkan!');
+    } else {
+      toast.error('Izin notifikasi belum diizinkan');
+    }
+  };
 
   return (
     <MobileLayout title="Absensi Lapangan Sales" showBack={true}>
@@ -114,7 +146,35 @@ export default function Attendance() {
           {currentTime.toLocaleTimeString('id-ID')}
         </div>
 
-        <p className="text-[11px] text-slate-400">Jam Kerja Sales: 08.00 – 15.00 WIB</p>
+        <p className="text-[11px] text-slate-300 font-semibold">
+          Jadwal Kerja Anda: <span className="text-emerald-400">{workStartLabel} – {workEndLabel} WIB</span>
+        </p>
+      </div>
+
+      {/* Browser Notification Pengingat Banner */}
+      <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-100 mb-4 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <div className={`p-2 rounded-xl ${notifPerm === 'granted' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+            <Bell className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-800">Pengingat Jam Masuk & Pulang</p>
+            <p className="text-[10px] text-slate-500">
+              {notifPerm === 'granted'
+                ? `Notifikasi aktif untuk jadwal ${workStartLabel} & ${workEndLabel} WIB`
+                : 'Aktifkan agar menerima pengingat otomatis saat jam masuk & pulang'}
+            </p>
+          </div>
+        </div>
+        {notifPerm !== 'granted' && (
+          <button
+            type="button"
+            onClick={handleRequestNotif}
+            className="text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg shrink-0"
+          >
+            Aktifkan
+          </button>
+        )}
       </div>
 
       {/* GPS Location Status */}
@@ -145,9 +205,9 @@ export default function Attendance() {
         <div className="text-xs text-amber-900">
           <p className="font-bold">Ketentuan Absensi Sales ALSYFA:</p>
           <ul className="list-disc list-inside mt-1 space-y-0.5 text-amber-800 text-[11px]">
-            <li>Jam masuk kerja mulai pukul <strong>08.00 WIB</strong> di area rute kerja.</li>
+            <li>Jam masuk kerja Anda mulai pukul <strong>{workStartLabel} WIB</strong> di area rute kerja.</li>
             <li>
-              <strong>Sales TIDAK BISA absen pulang sebelum pukul 15.00 WIB</strong> di area kerja.
+              <strong>Sales TIDAK BISA absen pulang sebelum pukul {workEndLabel} WIB</strong> di area kerja.
             </li>
             <li>Wajib menggunakan <strong>foto selfie terbaru dan titik koordinat GPS aktif</strong>.</li>
           </ul>
@@ -167,7 +227,7 @@ export default function Attendance() {
                   <span>{attendance.clock_in_time.substring(0, 5)} WIB</span>
                 </div>
               ) : (
-                <span className="text-xs text-slate-400 italic">Belum absen</span>
+                <span className="text-xs text-slate-400 italic">Belum absen ({workStartLabel})</span>
               )}
             </div>
           </div>
@@ -175,7 +235,7 @@ export default function Attendance() {
           <button
             type="button"
             onClick={handleOpenClockIn}
-            disabled={!!attendance?.clock_in_time}
+            disabled={!!attendance?.clock_in_time || loading}
             className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm ${
               attendance?.clock_in_time
                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
@@ -200,7 +260,7 @@ export default function Attendance() {
               ) : (
                 <div className="flex items-center gap-1 text-[11px] text-amber-600 font-semibold">
                   <AlertTriangle className="h-3 w-3" />
-                  <span>Minimal 15:00</span>
+                  <span>Minimal {workEndLabel}</span>
                 </div>
               )}
             </div>
@@ -209,11 +269,11 @@ export default function Attendance() {
           <button
             type="button"
             onClick={handleOpenClockOut}
-            disabled={!attendance?.clock_in_time || !!attendance?.clock_out_time}
+            disabled={!attendance?.clock_in_time || !!attendance?.clock_out_time || loading}
             className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm ${
-              attendance?.clock_out_time
+              attendance?.clock_out_time || !attendance?.clock_in_time
                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                : isBefore15
+                : isBeforeWorkEnd
                 ? 'bg-slate-200 text-slate-500 hover:bg-slate-300'
                 : 'bg-teal-600 hover:bg-teal-700 text-white shadow-teal-200'
             }`}

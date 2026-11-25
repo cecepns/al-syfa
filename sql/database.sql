@@ -42,6 +42,8 @@ CREATE TABLE `users` (
   `avatar` VARCHAR(255) NULL,
   `vehicle_type` ENUM('motor', 'van', 'mobil_box') DEFAULT 'van',
   `vehicle_number` VARCHAR(30) NULL,
+  `work_start_time` TIME NOT NULL DEFAULT '08:00:00',
+  `work_end_time` TIME NOT NULL DEFAULT '15:00:00',
   `is_active` TINYINT(1) NOT NULL DEFAULT 1,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -54,6 +56,7 @@ CREATE TABLE `customers` (
   `name` VARCHAR(150) NOT NULL,
   `owner_name` VARCHAR(100) NULL,
   `shop_type` ENUM('ritel', 'grosir', 'agen', 'apotek_klinik') NOT NULL DEFAULT 'ritel',
+  `store_label` VARCHAR(50) NULL DEFAULT NULL,
   `phone` VARCHAR(25) NOT NULL,
   `address` TEXT NOT NULL,
   `province_code` VARCHAR(20) NULL,
@@ -505,4 +508,17 @@ CREATE TABLE IF NOT EXISTS `daily_deposits` (
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (`sales_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 21. Branch Cities (Master Kota / Cabang Operasional Owner)
+CREATE TABLE IF NOT EXISTS `branch_cities` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `city_name` VARCHAR(100) NOT NULL UNIQUE,
+  `province_name` VARCHAR(100) NOT NULL DEFAULT 'Jawa Timur',
+  `regency_code` VARCHAR(20) NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `notes` VARCHAR(255) NULL,
+  `created_by` INT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

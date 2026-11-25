@@ -1,14 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Store,
   Plus,
   Edit2,
   Trash2,
   PhoneCall,
-  MapPin,
-  Filter,
-  Eye,
-  CheckCircle2
+  Tag
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
@@ -19,6 +16,9 @@ import SearchInput from '../../components/common/SearchInput';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
+import { EAST_JAVA_CITIES } from '../../utils/eastJavaCities';
+
+const STORE_LABEL_PRESETS = ['Toko Baru', 'Outlet Baru', 'Potensial', 'Langganan', 'Prioritas'];
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
@@ -28,6 +28,7 @@ export default function Customers() {
   const [search, setSearch] = useState('');
   const [shopType, setShopType] = useState('');
   const [salesFilter, setSalesFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
 
@@ -40,12 +41,14 @@ export default function Customers() {
     sales_id: '',
     owner_name: '',
     shop_type: 'ritel',
+    store_label: '',
+    is_active: 1,
     phone: '',
     address: '',
-    province_code: '32',
-    province_name: 'Jawa Barat',
-    regency_code: '32.01',
-    regency_name: 'Kabupaten Bogor',
+    province_code: '35',
+    province_name: 'Jawa Timur',
+    regency_code: '35.78',
+    regency_name: 'Kota Surabaya',
     district_code: '',
     district_name: '',
     village_code: '',
@@ -56,9 +59,12 @@ export default function Customers() {
     notes: ''
   });
 
-  // Wilayah.id Integration
+  // Wilayah.id & Branch Cities Integration
+  const [provinces, setProvinces] = useState([]);
+  const [regencies, setRegencies] = useState([]);
   const [districts, setDistricts] = useState([]);
   const [villages, setVillages] = useState([]);
+  const [branches, setBranches] = useState([]);
 
   // Delete Confirm State
   const [deleteId, setDeleteId] = useState(null);
@@ -66,11 +72,12 @@ export default function Customers() {
 
   useEffect(() => {
     fetchCustomers();
-  }, [page, limit, search, shopType, salesFilter]);
+  }, [page, limit, search, shopType, salesFilter, statusFilter]);
 
   useEffect(() => {
     fetchSales();
-    loadDistricts('32.01'); // Kab Bogor
+    fetchBranches();
+    loadProvinces();
   }, []);
 
   const fetchSales = async () => {
@@ -79,6 +86,15 @@ export default function Customers() {
       setSalesList(res.data || []);
     } catch (e) {
       console.warn(e);
+    }
+  };
+
+  const fetchBranches = async () => {
+    try {
+      const res = await request.get(API_ENDPOINTS.BRANCHES.LIST);
+      setBranches(res.data || []);
+    } catch {
+      // ignore
     }
   };
 
@@ -91,6 +107,7 @@ export default function Customers() {
         search,
         shop_type: shopType || undefined,
         sales_id: salesFilter || undefined,
+        is_active: statusFilter !== 'all' ? statusFilter : undefined,
       });
       setCustomers(res.data || []);
       setPagination(res.pagination);
@@ -101,21 +118,111 @@ export default function Customers() {
     }
   };
 
-  const loadDistricts = async (regCode) => {
+  const loadProvinces = async () => {
     try {
-      const res = await request.get(API_ENDPOINTS.WILAYAH.DISTRICTS(regCode));
-      setDistricts(res.data || []);
+      const res = await request.get(API_ENDPOINTS.WILAYAH.PROVINCES);
+      setProvinces(res.data || []);
     } catch (e) {
       console.warn(e);
     }
   };
 
+  const loadRegencies = async (provCode) => {
+    if (!provCode) return;
+    try {
+      const res = await request.get(API_ENDPOINTS.WILAYAH.REGENCIES(provCode));
+      let list = res.data || [];
+      if (provCode === '35' && list.length === 0) {
+        list = EAST_JAVA_CITIES.map((c) => ({ code: c.code, name: c.name }));
+      }
+      setRegencies(list);
+    } catch {
+      if (provCode === '35') {
+        setRegencies(EAST_JAVA_CITIES.map((c) => ({ code: c.code, name: c.name })));
+      }
+    }
+  };
+
+  const loadDistricts = async (regCode) => {
+    if (!regCode) {
+      setDistricts([]);
+      return;
+    }
+    try {
+      const res = await request.get(API_ENDPOINTS.WILAYAH.DISTRICTS(regCode));
+      setDistricts(res.data || []);
+    } catch (e) {
+      setDistricts([]);
+    }
+  };
+
   const loadVillages = async (distCode) => {
+    if (!distCode) {
+      setVillages([]);
+      return;
+    }
     try {
       const res = await request.get(API_ENDPOINTS.WILAYAH.VILLAGES(distCode));
       setVillages(res.data || []);
     } catch (e) {
-      console.warn(e);
+      setVillages([]);
+    }
+  };
+
+  const regencyOptions = useMemo(() => {
+    const map = new Map();
+    regencies.forEach((r) => map.set(r.name.toLowerCase(), { value: r.code, label: r.name, code: r.code, name: r.name }));
+    branches.forEach((b) => {
+      if (!form.province_name || !b.province_name || b.province_name.toLowerCase() === form.province_name.toLowerCase()) {
+        if (!map.has(b.city_name.toLowerCase())) {
+          map.set(b.city_name.toLowerCase(), {
+            value: b.regency_code || b.city_name,
+            label: `${b.city_name} (Cabang)`,
+            code: b.regency_code || '',
+            name: b.city_name,
+          });
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [regencies, branches, form.province_name]);
+
+  const handleProvinceChange = (provCode) => {
+    const selected = provinces.find((p) => p.code === provCode);
+    setForm((prev) => ({
+      ...prev,
+      province_code: provCode,
+      province_name: selected?.name || '',
+      regency_code: '',
+      regency_name: '',
+      district_code: '',
+      district_name: '',
+      village_code: '',
+      village_name: '',
+    }));
+    setDistricts([]);
+    setVillages([]);
+    loadRegencies(provCode);
+  };
+
+  const handleRegencyChange = (val) => {
+    const selected = regencyOptions.find((r) => r.value === val);
+    const regCode = selected?.code || val;
+    const regName = selected?.name || selected?.label || val;
+    setForm((prev) => ({
+      ...prev,
+      regency_code: regCode,
+      regency_name: regName,
+      district_code: '',
+      district_name: '',
+      village_code: '',
+      village_name: '',
+    }));
+    setVillages([]);
+    if (regCode && /^\d{2}\.\d{2}$/.test(regCode)) {
+      loadDistricts(regCode);
+    } else {
+      setDistricts([]);
     }
   };
 
@@ -142,42 +249,57 @@ export default function Customers() {
 
   const handleOpenCreate = () => {
     setEditId(null);
+    const defaultBranch = branches.find((b) => b.province_name === 'Jawa Timur') || branches[0];
+    const initProvCode = defaultBranch?.province_name === 'Jawa Barat' ? '32' : '35';
+    const initProvName = defaultBranch?.province_name || 'Jawa Timur';
+    const initRegCode = defaultBranch?.regency_code || '35.78';
+    const initRegName = defaultBranch?.city_name || 'Kota Surabaya';
+
     setForm({
       name: '',
       sales_id: '',
       owner_name: '',
       shop_type: 'ritel',
+      store_label: 'Toko Baru',
+      is_active: 1,
       phone: '',
       address: '',
-      province_code: '32',
-      province_name: 'Jawa Barat',
-      regency_code: '32.01',
-      regency_name: 'Kabupaten Bogor',
+      province_code: initProvCode,
+      province_name: initProvName,
+      regency_code: initRegCode,
+      regency_name: initRegName,
       district_code: '',
       district_name: '',
       village_code: '',
       village_name: '',
-      latitude: '-6.482000',
-      longitude: '106.845000',
+      latitude: '-7.257472',
+      longitude: '112.752088',
       credit_limit: 5000000,
       notes: ''
     });
+    loadRegencies(initProvCode);
+    loadDistricts(initRegCode);
+    setVillages([]);
     setModalOpen(true);
   };
 
   const handleOpenEdit = (c) => {
     setEditId(c.id);
+    const provCode = c.province_code || (c.province_name === 'Jawa Barat' ? '32' : '35');
+    const regCode = c.regency_code || '';
     setForm({
       name: c.name,
       sales_id: c.sales_id ? String(c.sales_id) : '',
       owner_name: c.owner_name || '',
       shop_type: c.shop_type,
+      store_label: c.store_label || '',
+      is_active: c.is_active !== undefined ? Number(c.is_active) : 1,
       phone: c.phone,
       address: c.address,
-      province_code: c.province_code || '32',
-      province_name: c.province_name || 'Jawa Barat',
-      regency_code: c.regency_code || '32.01',
-      regency_name: c.regency_name || 'Kabupaten Bogor',
+      province_code: provCode,
+      province_name: c.province_name || 'Jawa Timur',
+      regency_code: regCode,
+      regency_name: c.regency_name || '',
       district_code: c.district_code || '',
       district_name: c.district_name || '',
       village_code: c.village_code || '',
@@ -187,9 +309,9 @@ export default function Customers() {
       credit_limit: c.credit_limit || 0,
       notes: c.notes || ''
     });
-    if (c.district_code) {
-      loadVillages(c.district_code);
-    }
+    loadRegencies(provCode);
+    if (regCode) loadDistricts(regCode);
+    if (c.district_code) loadVillages(c.district_code);
     setModalOpen(true);
   };
 
@@ -238,7 +360,7 @@ export default function Customers() {
             Database Toko & Outlet Pelanggan
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Manajemen direktori pelanggan, kontak langsung WhatsApp, dan koordinat GPS outlet.
+            Manajemen direktori pelanggan, label toko, status aktif/nonaktif, dan koordinat GPS outlet.
           </p>
         </div>
 
@@ -252,54 +374,78 @@ export default function Customers() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex flex-col lg:flex-row items-center justify-between gap-3">
-        <div className="w-full lg:w-72">
-          <SearchInput
-            value={search}
-            onChange={(val) => {
-              setSearch(val);
-              setPage(1);
-            }}
-            placeholder="Cari nama toko, alamat, no hp..."
-          />
-        </div>
-
-        {/* Sales Filter Selector (Semua Toko / Per Sales) */}
-        <div className="w-full lg:w-64">
-          <AppSelect
-            value={salesFilter}
-            onChange={(val) => {
-              setSalesFilter(val);
-              setPage(1);
-            }}
-            options={[
-              { value: '', label: 'Semua Toko (Semua Sales)' },
-              ...salesList.map((s) => ({ value: String(s.id), label: `Sales: ${s.name}` })),
-            ]}
-          />
-        </div>
-
-        <div className="flex gap-1.5 overflow-x-auto w-full lg:w-auto text-xs pb-1 lg:pb-0">
-          {[
-            { key: '', label: 'Semua Tipe' },
-            { key: 'ritel', label: 'Ritel' },
-            { key: 'grosir', label: 'Grosir' },
-            { key: 'apotek_klinik', label: 'Apotek / Klinik' },
-            { key: 'agen', label: 'Agen' },
-          ].map((type) => (
-            <button
-              key={type.key}
-              onClick={() => {
-                setShopType(type.key);
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 space-y-3">
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-3">
+          <div className="w-full lg:w-72">
+            <SearchInput
+              value={search}
+              onChange={(val) => {
+                setSearch(val);
                 setPage(1);
               }}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-colors whitespace-nowrap ${
-                shopType === type.key
-                  ? 'bg-slate-900 text-white'
+              placeholder="Cari nama toko, label, keterangan..."
+            />
+          </div>
+
+          <div className="w-full lg:w-64">
+            <AppSelect
+              value={salesFilter}
+              onChange={(val) => {
+                setSalesFilter(val);
+                setPage(1);
+              }}
+              options={[
+                { value: '', label: 'Semua Toko (Semua Sales)' },
+                ...salesList.map((s) => ({ value: String(s.id), label: `Sales: ${s.name}` })),
+              ]}
+            />
+          </div>
+
+          <div className="flex gap-1.5 overflow-x-auto w-full lg:w-auto text-xs pb-1 lg:pb-0">
+            {[
+              { key: '', label: 'Semua Tipe' },
+              { key: 'ritel', label: 'Ritel' },
+              { key: 'grosir', label: 'Grosir' },
+              { key: 'apotek_klinik', label: 'Apotek / Klinik' },
+              { key: 'agen', label: 'Agen' },
+            ].map((type) => (
+              <button
+                key={type.key}
+                onClick={() => {
+                  setShopType(type.key);
+                  setPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-lg font-bold transition-colors whitespace-nowrap ${
+                  shopType === type.key
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-1.5 text-[11px]">
+          {[
+            { key: 'all', label: 'Semua Status' },
+            { key: '1', label: 'Toko Aktif' },
+            { key: '0', label: 'Toko Tidak Aktif' },
+          ].map((st) => (
+            <button
+              key={st.key}
+              onClick={() => {
+                setStatusFilter(st.key);
+                setPage(1);
+              }}
+              className={`px-3 py-1 rounded-lg font-bold transition-colors ${
+                statusFilter === st.key
+                  ? 'bg-emerald-700 text-white'
                   : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
               }`}
             >
-              {type.label}
+              {st.label}
             </button>
           ))}
         </div>
@@ -312,7 +458,7 @@ export default function Customers() {
             <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-100">
               <tr>
                 <th className="px-5 py-3">Kode / Toko</th>
-                <th className="px-5 py-3">Tipe</th>
+                <th className="px-5 py-3">Tipe & Label</th>
                 <th className="px-5 py-3">Sales PJ</th>
                 <th className="px-5 py-3">Pemilik & Kontak</th>
                 <th className="px-5 py-3">Wilayah (Kota – Kec – Desa)</th>
@@ -328,89 +474,113 @@ export default function Customers() {
                   </td>
                 </tr>
               ) : customers.length > 0 ? (
-                customers.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
-                          {c.image ? (
-                            <img
-                              src={getStorageUrl(c.image)}
-                              alt={c.name}
-                              className="h-full w-full object-cover"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <Store className="h-5 w-5 text-slate-400" />
-                          )}
+                customers.map((c) => {
+                  const isActive = Number(c.is_active) === 1;
+                  return (
+                    <tr key={c.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                            {c.image ? (
+                              <img
+                                src={getStorageUrl(c.image)}
+                                alt={c.name}
+                                className="h-full w-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <Store className="h-5 w-5 text-slate-400" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-[10px] text-slate-400">{c.code}</span>
+                              <span
+                                className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
+                                  isActive
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-rose-100 text-rose-700'
+                                }`}
+                              >
+                                {isActive ? 'Aktif' : 'Nonaktif'}
+                              </span>
+                            </div>
+                            <strong className="font-bold text-slate-900 text-xs block">{c.name}</strong>
+                            <span className="text-[11px] text-slate-500 truncate max-w-xs block">{c.address}</span>
+                            {c.notes && (
+                              <span className="text-[10px] text-slate-400 italic block truncate max-w-xs">
+                                Ket: {c.notes}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-mono text-[10px] text-slate-400 block">{c.code}</span>
-                          <strong className="font-bold text-slate-900 text-xs block">{c.name}</strong>
-                          <span className="text-[11px] text-slate-500 truncate max-w-xs block">{c.address}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-700">
-                        {c.shop_type?.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-100">
-                        {c.sales_name || 'Semua Toko'}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <p className="font-semibold text-slate-800">{c.owner_name || '-'}</p>
-                      {c.phone && (
-                        <a
-                          href={`https://wa.me/62${c.phone.replace(/^0/, '')}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-emerald-600 hover:underline flex items-center gap-1 text-[11px] font-medium"
-                        >
-                          <PhoneCall className="h-3 w-3" /> {c.phone}
-                        </a>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <p className="font-bold text-slate-900">{c.regency_name || 'Kabupaten Bogor'}</p>
-                      <p className="text-[11px] text-slate-600">Kec. {c.district_name || '-'}</p>
-                      <p className="text-[10px] text-slate-400">Desa {c.village_name || '-'}</p>
-                    </td>
-                    <td className="px-5 py-3.5 text-right font-black">
-                      {Number(c.current_balance) > 0 ? (
-                        <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg">
-                          Rp {Number(c.current_balance).toLocaleString('id-ID')}
+                      </td>
+                      <td className="px-5 py-3.5 space-y-1">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-700 inline-block">
+                          {c.shop_type?.replace('_', ' ')}
                         </span>
-                      ) : (
-                        <span className="text-emerald-600 font-bold">Lunas (Rp 0)</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5 text-right space-x-1.5 whitespace-nowrap">
-                      <button
-                        onClick={() => handleOpenEdit(c)}
-                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50"
-                        title="Edit Data Toko"
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setDeleteId(c.id);
-                          setDeleteOpen(true);
-                        }}
-                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-red-600 hover:bg-red-50"
-                        title="Hapus Toko"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                        {c.store_label && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-indigo-100 text-indigo-800 flex items-center gap-1 w-fit">
+                            <Tag className="h-2.5 w-2.5" /> {c.store_label}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-100">
+                          {c.sales_name || 'Semua Toko'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <p className="font-semibold text-slate-800">{c.owner_name || '-'}</p>
+                        {c.phone && (
+                          <a
+                            href={`https://wa.me/62${c.phone.replace(/^0/, '')}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-emerald-600 hover:underline flex items-center gap-1 text-[11px] font-medium"
+                          >
+                            <PhoneCall className="h-3 w-3" /> {c.phone}
+                          </a>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <p className="font-bold text-slate-900">{c.regency_name || 'Kabupaten Bogor'}</p>
+                        <p className="text-[11px] text-slate-600">Kec. {c.district_name || '-'}</p>
+                        <p className="text-[10px] text-slate-400">Desa {c.village_name || '-'}</p>
+                      </td>
+                      <td className="px-5 py-3.5 text-right font-black">
+                        {Number(c.current_balance) > 0 ? (
+                          <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg">
+                            Rp {Number(c.current_balance).toLocaleString('id-ID')}
+                          </span>
+                        ) : (
+                          <span className="text-emerald-600 font-bold">Lunas (Rp 0)</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5 text-right space-x-1.5 whitespace-nowrap">
+                        <button
+                          onClick={() => handleOpenEdit(c)}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50"
+                          title="Edit Data Toko"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setDeleteId(c.id);
+                            setDeleteOpen(true);
+                          }}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-red-600 hover:bg-red-50"
+                          title="Hapus Toko"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <td colSpan={7} className="px-5 py-8 text-center text-slate-400">
@@ -434,13 +604,13 @@ export default function Customers() {
         )}
       </div>
 
-      {/* Modal Add / Edit Customer with Wilayah.id integration */}
+      {/* Modal Add / Edit Customer */}
       <Modal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editId ? 'Edit Data Toko Pelanggan' : 'Tambah Toko Pelanggan Baru'}
       >
-        <form onSubmit={handleSubmitForm} className="space-y-3.5 text-xs">
+        <form onSubmit={handleSubmitForm} className="space-y-3.5 text-xs max-h-[75vh] overflow-y-auto pr-1">
           <div>
             <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
               Nama Toko / Outlet *
@@ -497,6 +667,55 @@ export default function Customers() {
             </div>
           </div>
 
+          {/* Label & Status Toko */}
+          <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-200 space-y-2">
+            <label className="block font-bold text-indigo-900 uppercase tracking-wider text-[11px]">
+              Label Toko & Status
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, store_label: '' })}
+                className={`px-2 py-1 rounded-lg text-[10px] font-bold ${
+                  !form.store_label ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200'
+                }`}
+              >
+                Tanpa Label
+              </button>
+              {STORE_LABEL_PRESETS.map((lbl) => (
+                <button
+                  key={lbl}
+                  type="button"
+                  onClick={() => setForm({ ...form, store_label: lbl })}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-bold ${
+                    form.store_label === lbl
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-white text-indigo-700 border border-indigo-200'
+                  }`}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <input
+                type="text"
+                value={form.store_label}
+                onChange={(e) => setForm({ ...form, store_label: e.target.value })}
+                placeholder="Label kustom..."
+                className="rounded-xl border border-indigo-200 bg-white p-2 text-xs text-slate-800"
+              />
+              <AppSelect
+                value={String(form.is_active)}
+                onChange={(val) => setForm({ ...form, is_active: Number(val) })}
+                options={[
+                  { value: '1', label: 'Status: Aktif' },
+                  { value: '0', label: 'Status: Tidak Aktif' },
+                ]}
+              />
+            </div>
+          </div>
+
           <div>
             <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
               No. Telepon / WhatsApp *
@@ -513,15 +732,34 @@ export default function Customers() {
           {/* Wilayah API */}
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
             <span className="font-bold text-slate-700 block uppercase tracking-wider text-[11px]">
-              Data Wilayah (Terintegrasi wilayah.id)
+              Data Wilayah (Kota/Kabupaten – Kec – Desa)
             </span>
             <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Provinsi</label>
+                <AppSelect
+                  value={form.province_code}
+                  onChange={(val) => handleProvinceChange(val)}
+                  placeholder="Pilih Provinsi..."
+                  options={provinces.map((p) => ({ value: p.code, label: p.name }))}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Kota / Kabupaten</label>
+                <AppSelect
+                  value={form.regency_code || form.regency_name}
+                  onChange={(val) => handleRegencyChange(val)}
+                  placeholder="Pilih Kota/Kab..."
+                  options={regencyOptions}
+                />
+              </div>
               <div>
                 <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Kecamatan</label>
                 <AppSelect
                   value={form.district_code}
                   onChange={(val) => handleDistrictChange(val)}
                   placeholder="Pilih Kecamatan..."
+                  isDisabled={!form.regency_code}
                   options={districts.map((d) => ({ value: d.code, label: d.name }))}
                 />
               </div>
@@ -547,6 +785,19 @@ export default function Customers() {
               rows={2}
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800"
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Keterangan Toko
+            </label>
+            <textarea
+              rows={2}
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="Catatan tambahan tentang toko..."
               className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800"
             />
           </div>

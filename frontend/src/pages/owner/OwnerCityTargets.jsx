@@ -15,11 +15,13 @@ import {
   AlertCircle,
   FileSpreadsheet,
   Award,
-  BarChart3
+  BarChart3,
+  Plus
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
 import Modal from '../../components/common/Modal';
+import AddBranchCityModal from '../../components/owner/AddBranchCityModal';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
 
@@ -57,7 +59,8 @@ export default function OwnerCityTargets() {
     new Date().toISOString().substring(0, 7)
   );
 
-  // Modal Atur Target Kota
+  // Modal Atur Target Kota & Tambah Kota Cabang
+  const [addCityOpen, setAddCityOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCity, setEditingCity] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -314,7 +317,16 @@ export default function OwnerCityTargets() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setAddCityOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold shadow-sm shadow-blue-200 transition-all shrink-0"
+              title="Tambah Kota / Cabang (All Jawa Timur)"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Tambah Kota</span>
+            </button>
+
             <input
               type="month"
               value={selectedMonth}
@@ -658,6 +670,14 @@ export default function OwnerCityTargets() {
           </div>
         </form>
       </Modal>
+
+      {/* Modal Tambah Kota / Cabang (All Jawa Timur & Manual) */}
+      <AddBranchCityModal
+        isOpen={addCityOpen}
+        onClose={() => setAddCityOpen(false)}
+        existingCities={cities.map((c) => c.city_name)}
+        onSuccess={fetchCityTargets}
+      />
     </AdminLayout>
   );
 }

@@ -6,13 +6,11 @@ import {
   Store,
   ShoppingCart,
   Truck,
-  UserCheck,
-  Sparkles,
   ArrowLeft,
-  LogOut,
-  ShieldAlert
+  LogOut
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import AttendanceReminder from '../sales/AttendanceReminder';
 
 export default function MobileLayout({ children, title, showBack = false }) {
   const location = useLocation();
@@ -88,6 +86,7 @@ export default function MobileLayout({ children, title, showBack = false }) {
 
         {/* Content Body */}
         <main className="flex-1 p-4 overflow-y-auto">
+          {location.pathname !== '/sales/absensi' && <AttendanceReminder />}
           {children}
         </main>
 

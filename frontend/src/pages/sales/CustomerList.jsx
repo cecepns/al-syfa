@@ -1,33 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Store,
   Plus,
   PhoneCall,
   MapPin,
-  ChevronRight,
-  ExternalLink,
-  Search,
-  Filter,
-  CheckCircle2,
   Navigation,
   History,
-  FileText,
   Clock,
   CheckCircle,
-  CreditCard,
-  Printer
+  Printer,
+  Edit2,
+  Trash2,
+  Tag,
+  FileText,
+  Power
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import MobileLayout from '../../components/layout/MobileLayout';
 import SearchInput from '../../components/common/SearchInput';
 import Pagination from '../../components/common/Pagination';
 import Modal from '../../components/common/Modal';
+import ConfirmDialog from '../../components/common/ConfirmDialog';
 import ReceiptModal from '../../components/common/ReceiptModal';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 import { useGeolocation } from '../../hooks/useGeolocation';
+import { EAST_JAVA_CITIES } from '../../utils/eastJavaCities';
+
+const STORE_LABEL_PRESETS = ['Toko Baru', 'Outlet Baru', 'Potensial', 'Langganan', 'Prioritas'];
 
 export default function CustomerList() {
   const [customers, setCustomers] = useState([]);
@@ -35,6 +37,8 @@ export default function CustomerList() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [shopType, setShopType] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | '1' | '0'
+  const [labelFilter, setLabelFilter] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
 
@@ -46,19 +50,22 @@ export default function CustomerList() {
   const [updatingRetailId, setUpdatingRetailId] = useState(null);
   const [receiptOrder, setReceiptOrder] = useState(null);
 
-  // Add Customer Modal State
+  // Add / Edit Customer Modal State
   const [modalOpen, setModalOpen] = useState(false);
+  const [editId, setEditId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     name: '',
     owner_name: '',
     shop_type: 'ritel',
+    store_label: 'Toko Baru',
+    is_active: 1,
     phone: '',
     address: '',
-    province_code: '32',
-    province_name: 'Jawa Barat',
-    regency_code: '32.01',
-    regency_name: 'Kabupaten Bogor',
+    province_code: '35',
+    province_name: 'Jawa Timur',
+    regency_code: '35.78',
+    regency_name: 'Kota Surabaya',
     district_code: '',
     district_name: '',
     village_code: '',
@@ -69,17 +76,35 @@ export default function CustomerList() {
     notes: ''
   });
 
-  // Wilayah API options
+  // Delete Confirm State
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  // Wilayah API & Branches options
   const [provinces, setProvinces] = useState([]);
   const [regencies, setRegencies] = useState([]);
   const [districts, setDistricts] = useState([]);
   const [villages, setVillages] = useState([]);
+  const [branches, setBranches] = useState([]);
 
   const geo = useGeolocation();
 
   useEffect(() => {
     fetchCustomers();
-  }, [page, limit, search, shopType]);
+  }, [page, limit, search, shopType, statusFilter, labelFilter]);
+
+  useEffect(() => {
+    fetchBranches();
+  }, []);
+
+  const fetchBranches = async () => {
+    try {
+      const res = await request.get(API_ENDPOINTS.BRANCHES.LIST);
+      setBranches(res.data || []);
+    } catch {
+      // ignore
+    }
+  };
 
   const fetchCustomers = async () => {
     setLoading(true);
@@ -89,6 +114,8 @@ export default function CustomerList() {
         limit,
         search,
         shop_type: shopType || undefined,
+        is_active: statusFilter !== 'all' ? statusFilter : undefined,
+        store_label: labelFilter || undefined,
       });
       setCustomers(res.data || []);
       setPagination(res.pagination);
@@ -99,58 +126,183 @@ export default function CustomerList() {
     }
   };
 
-  // Load Provinces on Modal Open
-  useEffect(() => {
-    if (modalOpen) {
-      loadProvinces();
-      // Auto-set current GPS coordinates
-      if (geo.latitude && geo.longitude) {
-        setForm((prev) => ({
-          ...prev,
-          latitude: geo.latitude.toFixed(6),
-          longitude: geo.longitude.toFixed(6),
-        }));
-      }
-    }
-  }, [modalOpen]);
-
   const loadProvinces = async () => {
     try {
       const res = await request.get(API_ENDPOINTS.WILAYAH.PROVINCES);
       setProvinces(res.data || []);
-      // Default to Jawa Barat
-      loadRegencies('32');
     } catch (e) {
       console.warn(e);
     }
   };
 
   const loadRegencies = async (provCode) => {
+    if (!provCode) return;
     try {
       const res = await request.get(API_ENDPOINTS.WILAYAH.REGENCIES(provCode));
-      setRegencies(res.data || []);
-      // Default to Kab Bogor
-      loadDistricts('32.01');
+      let list = res.data || [];
+      if (provCode === '35' && list.length === 0) {
+        list = EAST_JAVA_CITIES.map((c) => ({ code: c.code, name: c.name }));
+      }
+      setRegencies(list);
     } catch (e) {
-      console.warn(e);
+      if (provCode === '35') {
+        setRegencies(EAST_JAVA_CITIES.map((c) => ({ code: c.code, name: c.name })));
+      }
     }
   };
 
   const loadDistricts = async (regCode) => {
+    if (!regCode) {
+      setDistricts([]);
+      return;
+    }
     try {
       const res = await request.get(API_ENDPOINTS.WILAYAH.DISTRICTS(regCode));
       setDistricts(res.data || []);
     } catch (e) {
-      console.warn(e);
+      setDistricts([]);
     }
   };
 
   const loadVillages = async (distCode) => {
+    if (!distCode) {
+      setVillages([]);
+      return;
+    }
     try {
       const res = await request.get(API_ENDPOINTS.WILAYAH.VILLAGES(distCode));
       setVillages(res.data || []);
     } catch (e) {
-      console.warn(e);
+      setVillages([]);
+    }
+  };
+
+  // Combine regencies with registered Owner branches so all added cities are selectable
+  const regencyOptions = useMemo(() => {
+    const map = new Map();
+    regencies.forEach((r) => map.set(r.name.toLowerCase(), { value: r.code, label: r.name, code: r.code, name: r.name }));
+    branches.forEach((b) => {
+      if (!form.province_name || !b.province_name || b.province_name.toLowerCase() === form.province_name.toLowerCase()) {
+        if (!map.has(b.city_name.toLowerCase())) {
+          map.set(b.city_name.toLowerCase(), {
+            value: b.regency_code || b.city_name,
+            label: `${b.city_name} (Cabang)`,
+            code: b.regency_code || '',
+            name: b.city_name,
+          });
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [regencies, branches, form.province_name]);
+
+  const handleOpenCreate = () => {
+    setEditId(null);
+    const defaultBranch = branches.find((b) => b.province_name === 'Jawa Timur') || branches[0];
+    const initProvCode = defaultBranch?.province_name === 'Jawa Barat' ? '32' : '35';
+    const initProvName = defaultBranch?.province_name || 'Jawa Timur';
+    const initRegCode = defaultBranch?.regency_code || '35.78';
+    const initRegName = defaultBranch?.city_name || 'Kota Surabaya';
+
+    setForm({
+      name: '',
+      owner_name: '',
+      shop_type: 'ritel',
+      store_label: 'Toko Baru',
+      is_active: 1,
+      phone: '',
+      address: '',
+      province_code: initProvCode,
+      province_name: initProvName,
+      regency_code: initRegCode,
+      regency_name: initRegName,
+      district_code: '',
+      district_name: '',
+      village_code: '',
+      village_name: '',
+      latitude: geo.latitude ? geo.latitude.toFixed(6) : '',
+      longitude: geo.longitude ? geo.longitude.toFixed(6) : '',
+      credit_limit: 5000000,
+      notes: ''
+    });
+
+    loadProvinces();
+    loadRegencies(initProvCode);
+    loadDistricts(initRegCode);
+    setVillages([]);
+    setModalOpen(true);
+  };
+
+  const handleOpenEdit = (c) => {
+    setEditId(c.id);
+    const provCode = c.province_code || (c.province_name === 'Jawa Barat' ? '32' : '35');
+    const regCode = c.regency_code || '';
+
+    setForm({
+      name: c.name || '',
+      owner_name: c.owner_name || '',
+      shop_type: c.shop_type || 'ritel',
+      store_label: c.store_label || '',
+      is_active: c.is_active !== undefined ? Number(c.is_active) : 1,
+      phone: c.phone || '',
+      address: c.address || '',
+      province_code: provCode,
+      province_name: c.province_name || 'Jawa Timur',
+      regency_code: regCode,
+      regency_name: c.regency_name || '',
+      district_code: c.district_code || '',
+      district_name: c.district_name || '',
+      village_code: c.village_code || '',
+      village_name: c.village_name || '',
+      latitude: c.latitude || '',
+      longitude: c.longitude || '',
+      credit_limit: c.credit_limit || 5000000,
+      notes: c.notes || ''
+    });
+
+    loadProvinces();
+    loadRegencies(provCode);
+    if (regCode) loadDistricts(regCode);
+    if (c.district_code) loadVillages(c.district_code);
+    setModalOpen(true);
+  };
+
+  const handleProvinceChange = (provCode) => {
+    const selected = provinces.find((p) => p.code === provCode);
+    setForm((prev) => ({
+      ...prev,
+      province_code: provCode,
+      province_name: selected?.name || '',
+      regency_code: '',
+      regency_name: '',
+      district_code: '',
+      district_name: '',
+      village_code: '',
+      village_name: '',
+    }));
+    setDistricts([]);
+    setVillages([]);
+    loadRegencies(provCode);
+  };
+
+  const handleRegencyChange = (val) => {
+    const selected = regencyOptions.find((r) => r.value === val);
+    const regCode = selected?.code || val;
+    const regName = selected?.name || selected?.label || val;
+    setForm((prev) => ({
+      ...prev,
+      regency_code: regCode,
+      regency_name: regName,
+      district_code: '',
+      district_name: '',
+      village_code: '',
+      village_name: '',
+    }));
+    setVillages([]);
+    if (regCode && /^\d{2}\.\d{2}$/.test(regCode)) {
+      loadDistricts(regCode);
+    } else {
+      setDistricts([]);
     }
   };
 
@@ -181,7 +333,8 @@ export default function CustomerList() {
     setHistoryLoading(true);
     try {
       const res = await request.get(API_ENDPOINTS.CUSTOMERS.PURCHASE_HISTORY(customer.id));
-      setPurchaseHistory(res.data || []);
+      const ordersArr = Array.isArray(res.data) ? res.data : (res.data?.orders || []);
+      setPurchaseHistory(ordersArr);
     } catch (err) {
       toast.error(err.message || 'Gagal memuat riwayat belanja');
     } finally {
@@ -199,7 +352,8 @@ export default function CustomerList() {
       toast.success(`Status pembayaran toko berhasil diperbarui menjadi ${newStatus.toUpperCase()}!`);
       if (selectedCustomer) {
         const res = await request.get(API_ENDPOINTS.CUSTOMERS.PURCHASE_HISTORY(selectedCustomer.id));
-        setPurchaseHistory(res.data || []);
+        const ordersArr = Array.isArray(res.data) ? res.data : (res.data?.orders || []);
+        setPurchaseHistory(ordersArr);
         fetchCustomers();
       }
     } catch (err) {
@@ -218,14 +372,45 @@ export default function CustomerList() {
 
     setSubmitting(true);
     try {
-      await request.post(API_ENDPOINTS.CUSTOMERS.CREATE, form);
-      toast.success('Toko baru berhasil ditambahkan!');
+      if (editId) {
+        await request.put(API_ENDPOINTS.CUSTOMERS.UPDATE(editId), form);
+        toast.success('Data toko berhasil diperbarui!');
+      } else {
+        await request.post(API_ENDPOINTS.CUSTOMERS.CREATE, form);
+        toast.success('Toko baru berhasil ditambahkan!');
+      }
       setModalOpen(false);
       fetchCustomers();
     } catch (err) {
       toast.error(err.message || 'Gagal menyimpan data toko');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleToggleStatus = async (customer) => {
+    const nextStatus = Number(customer.is_active) === 1 ? 0 : 1;
+    try {
+      await request.put(API_ENDPOINTS.CUSTOMERS.UPDATE_STATUS(customer.id), {
+        is_active: nextStatus,
+      });
+      toast.success(`Toko ${customer.name} kini ${nextStatus === 1 ? 'AKTIF' : 'TIDAK AKTIF'}`);
+      fetchCustomers();
+    } catch (err) {
+      toast.error(err.message || 'Gagal mengubah status toko');
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await request.del(API_ENDPOINTS.CUSTOMERS.DELETE(deleteTarget.id));
+      toast.success(`Toko "${deleteTarget.name}" berhasil dihapus`);
+      setDeleteOpen(false);
+      setDeleteTarget(null);
+      fetchCustomers();
+    } catch (err) {
+      toast.error(err.message || 'Gagal menghapus toko');
     }
   };
 
@@ -241,19 +426,19 @@ export default function CustomerList() {
                 setSearch(val);
                 setPage(1);
               }}
-              placeholder="Cari nama toko, alamat, pemilik..."
+              placeholder="Cari nama toko, label, keterangan..."
             />
           </div>
           <button
-            onClick={() => setModalOpen(true)}
+            onClick={handleOpenCreate}
             className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-sm shadow-emerald-200 transition-all shrink-0"
           >
             <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Tambah Toko</span>
+            <span>Tambah Toko</span>
           </button>
         </div>
 
-        {/* Filter Pills */}
+        {/* Filter Pills: Tipe Toko */}
         <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
           {[
             { key: '', label: 'Semua Tipe' },
@@ -278,6 +463,44 @@ export default function CustomerList() {
             </button>
           ))}
         </div>
+
+        {/* Filter Pills: Status Aktif & Label Toko Baru */}
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
+          {[
+            { key: 'all', label: 'Semua Status' },
+            { key: '1', label: '● Aktif' },
+            { key: '0', label: '○ Tidak Aktif' },
+          ].map((st) => (
+            <button
+              key={st.key}
+              onClick={() => {
+                setStatusFilter(st.key);
+                setPage(1);
+              }}
+              className={`px-2.5 py-1 rounded-lg font-bold whitespace-nowrap transition-colors ${
+                statusFilter === st.key
+                  ? 'bg-emerald-700 text-white'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {st.label}
+            </button>
+          ))}
+
+          <button
+            onClick={() => {
+              setLabelFilter(labelFilter === 'Toko Baru' ? '' : 'Toko Baru');
+              setPage(1);
+            }}
+            className={`px-2.5 py-1 rounded-lg font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${
+              labelFilter === 'Toko Baru'
+                ? 'bg-indigo-600 text-white'
+                : 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100'
+            }`}
+          >
+            <Tag className="h-3 w-3" /> Label: Toko Baru
+          </button>
+        </div>
       </div>
 
       {/* Customer List Cards */}
@@ -293,111 +516,176 @@ export default function CustomerList() {
         </div>
       ) : customers.length > 0 ? (
         <div className="space-y-3 mb-4">
-          {customers.map((c) => (
-            <div
-              key={c.id}
-              className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-emerald-200 transition-all"
-            >
-              <div className="flex items-start justify-between gap-3 mb-2">
-                <div className="flex items-start gap-3">
-                  <div className="h-11 w-11 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
-                    {c.image ? (
-                      <img
-                        src={getStorageUrl(c.image)}
-                        alt={c.name}
-                        className="h-full w-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <Store className="h-5 w-5 text-slate-400" />
-                    )}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                        {c.shop_type?.replace('_', ' ')}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono">{c.code}</span>
+          {customers.map((c) => {
+            const isActive = Number(c.is_active) === 1;
+            return (
+              <div
+                key={c.id}
+                className={`bg-white rounded-2xl p-4 shadow-sm border transition-all ${
+                  isActive
+                    ? 'border-slate-100 hover:border-emerald-200'
+                    : 'border-rose-200/80 bg-slate-50/70 opacity-90'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-start gap-3">
+                    <div className="h-11 w-11 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                      {c.image ? (
+                        <img
+                          src={getStorageUrl(c.image)}
+                          alt={c.name}
+                          className="h-full w-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <Store className="h-5 w-5 text-slate-400" />
+                      )}
                     </div>
-                    <h4 className="text-sm font-extrabold text-slate-800 mt-0.5">{c.name}</h4>
-                    <p className="text-[11px] text-slate-500 font-medium">Pemilik: {c.owner_name || '-'}</p>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                          {c.shop_type?.replace('_', ' ')}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                            isActive
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-rose-100 text-rose-700'
+                          }`}
+                        >
+                          {isActive ? 'Aktif' : 'Tidak Aktif'}
+                        </span>
+                        {c.store_label && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                            <Tag className="h-2.5 w-2.5" /> {c.store_label}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-slate-400 font-mono">{c.code}</span>
+                      </div>
+                      <h4 className="text-sm font-extrabold text-slate-800 mt-1">{c.name}</h4>
+                      <p className="text-[11px] text-slate-500 font-medium">Pemilik: {c.owner_name || '-'}</p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Hierarchy: KOTA – KECAMATAN – DESA */}
-              <div className="text-[11px] font-semibold text-slate-700 bg-slate-50 px-2.5 py-1.5 rounded-lg mb-2 border border-slate-100 flex flex-wrap items-center gap-1.5">
-                <span className="text-emerald-700 font-bold">{c.regency_name || 'Kota/Kabupaten'}</span>
-                <span className="text-slate-300">•</span>
-                <span>Kec. {c.district_name || '-'}</span>
-                <span className="text-slate-300">•</span>
-                <span className="text-slate-500">Desa/Kel. {c.village_name || '-'}</span>
-              </div>
-
-              <p className="text-xs text-slate-600 flex items-start gap-1.5 mb-2.5">
-                <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
-                <span>{c.address}</span>
-              </p>
-
-              {/* Piutang / Balance Alert */}
-              {Number(c.current_balance) > 0 && (
-                <div className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg mb-3 flex justify-between">
-                  <span>Piutang Belum Lunas:</span>
-                  <span>Rp {Number(c.current_balance).toLocaleString('id-ID')}</span>
-                </div>
-              )}
-
-              {/* Action Buttons: 2 rows */}
-              <div className="pt-2 border-t border-slate-100 space-y-2">
-                <div className="flex items-center gap-2">
-                  {/* Google Maps direct link button */}
-                  <a
-                    href={
-                      c.latitude && c.longitude
-                        ? `https://www.google.com/maps/search/?api=1&query=${c.latitude},${c.longitude}`
-                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${c.name} ${c.address || ''} ${c.district_name || ''}`)}`
-                    }
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold transition-colors border border-blue-100"
-                    title="Buka lokasi di Google Maps"
-                  >
-                    <Navigation className="h-3.5 w-3.5" /> Buka Maps
-                  </a>
-
-                  {/* Riwayat Belanja modal trigger */}
-                  <button
-                    type="button"
-                    onClick={() => handleOpenHistory(c)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-amber-50 text-amber-800 hover:bg-amber-100 text-xs font-bold transition-colors border border-amber-100"
-                  >
-                    <History className="h-3.5 w-3.5" /> Riwayat Belanja
-                  </button>
+                {/* Hierarchy: KOTA – KECAMATAN – DESA */}
+                <div className="text-[11px] font-semibold text-slate-700 bg-slate-50 px-2.5 py-1.5 rounded-lg mb-2 border border-slate-100 flex flex-wrap items-center gap-1.5">
+                  <span className="text-emerald-700 font-bold">{c.regency_name || 'Kota/Kabupaten'}</span>
+                  <span className="text-slate-300">•</span>
+                  <span>Kec. {c.district_name || '-'}</span>
+                  <span className="text-slate-300">•</span>
+                  <span className="text-slate-500">Desa/Kel. {c.village_name || '-'}</span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {c.phone && (
+                <p className="text-xs text-slate-600 flex items-start gap-1.5 mb-2">
+                  <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                  <span>{c.address}</span>
+                </p>
+
+                {/* Keterangan Toko */}
+                {c.notes && (
+                  <div className="text-[11px] text-slate-700 bg-slate-50/90 border border-slate-200/80 px-2.5 py-1.5 rounded-lg mb-2.5 flex items-start gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                    <span>
+                      <strong className="text-slate-600">Ket:</strong> {c.notes}
+                    </span>
+                  </div>
+                )}
+
+                {/* Piutang / Balance Alert */}
+                {Number(c.current_balance) > 0 && (
+                  <div className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg mb-3 flex justify-between">
+                    <span>Piutang Belum Lunas:</span>
+                    <span>Rp {Number(c.current_balance).toLocaleString('id-ID')}</span>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="pt-2 border-t border-slate-100 space-y-2">
+                  <div className="flex items-center gap-2">
                     <a
-                      href={`https://wa.me/62${c.phone.replace(/^0/, '')}?text=${encodeURIComponent(`Halo ${c.name}, saya dari sales ALSYFA Snack Coklat ingin mengkonfirmasi kebutuhan stok produk Anda.`)}`}
+                      href={
+                        c.latitude && c.longitude
+                          ? `https://www.google.com/maps/search/?api=1&query=${c.latitude},${c.longitude}`
+                          : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${c.name} ${c.address || ''} ${c.district_name || ''}`)}`
+                      }
                       target="_blank"
                       rel="noreferrer"
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 text-xs font-bold transition-colors"
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold transition-colors border border-blue-100"
                     >
-                      <PhoneCall className="h-3.5 w-3.5" /> WhatsApp
+                      <Navigation className="h-3.5 w-3.5" /> Buka Maps
                     </a>
-                  )}
-                  <Link
-                    to={`/sales/visit/${c.id}`}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm shadow-emerald-200"
-                  >
-                    <MapPin className="h-3.5 w-3.5" /> Kunjungi Toko
-                  </Link>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenHistory(c)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-amber-50 text-amber-800 hover:bg-amber-100 text-xs font-bold transition-colors border border-amber-100"
+                    >
+                      <History className="h-3.5 w-3.5" /> Riwayat Belanja
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {c.phone && (
+                      <a
+                        href={`https://wa.me/62${c.phone.replace(/^0/, '')}?text=${encodeURIComponent(`Halo ${c.name}, saya dari sales ALSYFA Snack Coklat ingin mengkonfirmasi kebutuhan stok produk Anda.`)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 text-xs font-bold transition-colors"
+                      >
+                        <PhoneCall className="h-3.5 w-3.5" /> WhatsApp
+                      </a>
+                    )}
+                    <Link
+                      to={`/sales/visit/${c.id}`}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm shadow-emerald-200"
+                    >
+                      <MapPin className="h-3.5 w-3.5" /> Kunjungi Toko
+                    </Link>
+                  </div>
+
+                  {/* Row 3: Edit, Toggle Aktif/Tidak Aktif, Hapus Toko */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(c)}
+                      className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition-colors"
+                    >
+                      <Edit2 className="h-3 w-3" /> Edit Toko
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStatus(c)}
+                      className={`flex-1 flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-xl text-[11px] font-bold transition-colors border ${
+                        isActive
+                          ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                      }`}
+                    >
+                      <Power className="h-3 w-3" />
+                      <span>{isActive ? 'Nonaktifkan' : 'Aktifkan'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteTarget(c);
+                        setDeleteOpen(true);
+                      }}
+                      className="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold transition-colors"
+                      title="Hapus Toko"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      <span>Hapus</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="bg-white rounded-2xl p-8 text-center border border-slate-100 shadow-sm">
@@ -405,7 +693,7 @@ export default function CustomerList() {
           <h4 className="text-sm font-bold text-slate-700">Toko tidak ditemukan</h4>
           <p className="text-xs text-slate-400 mt-1 mb-4">Coba ubah kata kunci pencarian atau tambah toko baru.</p>
           <button
-            onClick={() => setModalOpen(true)}
+            onClick={handleOpenCreate}
             className="inline-flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow"
           >
             <Plus className="h-4 w-4" /> Tambah Toko Sekarang
@@ -425,9 +713,13 @@ export default function CustomerList() {
         />
       )}
 
-      {/* Add Customer Modal with Wilayah.id Integration */}
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Tambah Toko Pelanggan Baru">
-        <form onSubmit={handleSubmitCustomer} className="space-y-3.5 text-xs">
+      {/* Add / Edit Customer Modal */}
+      <Modal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editId ? 'Edit Data Toko / Outlet' : 'Tambah Toko Pelanggan Baru'}
+      >
+        <form onSubmit={handleSubmitCustomer} className="space-y-3.5 text-xs max-h-[75vh] overflow-y-auto pr-1">
           <div>
             <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">Nama Toko / Outlet *</label>
             <input
@@ -466,6 +758,81 @@ export default function CustomerList() {
             </div>
           </div>
 
+          {/* Label Toko / Outlet Baru */}
+          <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-200/80 space-y-2">
+            <label className="block font-bold text-indigo-900 uppercase tracking-wider text-[11px]">
+              Label Toko / Outlet (Opsional)
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, store_label: '' })}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                  !form.store_label
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-white text-slate-600 border border-slate-200'
+                }`}
+              >
+                Tanpa Label
+              </button>
+              {STORE_LABEL_PRESETS.map((lbl) => (
+                <button
+                  key={lbl}
+                  type="button"
+                  onClick={() => setForm({ ...form, store_label: lbl })}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                    form.store_label === lbl
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-100'
+                  }`}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              value={form.store_label}
+              onChange={(e) => setForm({ ...form, store_label: e.target.value })}
+              placeholder="Atau ketik label kustom (mis: Toko Baru)..."
+              className="w-full rounded-xl border border-indigo-200 bg-white p-2 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Status Aktif / Tidak Aktif */}
+          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <div>
+              <span className="font-bold text-slate-700 uppercase tracking-wider text-[11px] block">
+                Status Toko
+              </span>
+              <span className="text-[10px] text-slate-500">Tentukan apakah toko aktif dikunjungi/order</span>
+            </div>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, is_active: 1 })}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                  Number(form.is_active) === 1
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-white text-slate-500 border border-slate-200'
+                }`}
+              >
+                Aktif
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, is_active: 0 })}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                  Number(form.is_active) === 0
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'bg-white text-slate-500 border border-slate-200'
+                }`}
+              >
+                Tidak Aktif
+              </button>
+            </div>
+          </div>
+
           <div>
             <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">No. WhatsApp / HP *</label>
             <input
@@ -481,15 +848,34 @@ export default function CustomerList() {
           {/* Wilayah.id Cascading Dropdowns */}
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
             <span className="font-bold text-slate-700 block uppercase tracking-wider text-[11px]">
-              Data Wilayah (Terintegrasi wilayah.id)
+              Data Wilayah (Kota/Kabupaten – Kec – Desa)
             </span>
             <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Provinsi</label>
+                <AppSelect
+                  value={form.province_code}
+                  onChange={(val) => handleProvinceChange(val)}
+                  placeholder="Pilih Provinsi..."
+                  options={provinces.map((p) => ({ value: p.code, label: p.name }))}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Kota / Kabupaten</label>
+                <AppSelect
+                  value={form.regency_code || form.regency_name}
+                  onChange={(val) => handleRegencyChange(val)}
+                  placeholder="Pilih Kota/Kab..."
+                  options={regencyOptions}
+                />
+              </div>
               <div>
                 <label className="block text-[10px] text-slate-500 font-semibold mb-0.5">Kecamatan</label>
                 <AppSelect
                   value={form.district_code}
                   onChange={(val) => handleDistrictChange(val)}
                   placeholder="Pilih Kecamatan..."
+                  isDisabled={!form.regency_code}
                   options={districts.map((d) => ({ value: d.code, label: d.name }))}
                 />
               </div>
@@ -514,6 +900,20 @@ export default function CustomerList() {
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
               placeholder="Jl. Raya Utama No. XX..."
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Keterangan Toko */}
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Keterangan Toko
+            </label>
+            <textarea
+              rows={2}
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="Catatan jam buka toko, patokan lokasi, minat produk, dll..."
               className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 focus:border-emerald-500 focus:outline-none"
             />
           </div>
@@ -552,7 +952,7 @@ export default function CustomerList() {
               disabled={submitting}
               className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md shadow-emerald-200 disabled:opacity-50"
             >
-              {submitting ? 'Menyimpan...' : 'Simpan Toko'}
+              {submitting ? 'Menyimpan...' : editId ? 'Simpan Perubahan' : 'Simpan Toko'}
             </button>
           </div>
         </form>
@@ -588,100 +988,101 @@ export default function CustomerList() {
             </div>
           ) : purchaseHistory.length > 0 ? (
             <div className="space-y-3">
-              {purchaseHistory.map((order) => (
-                <div
-                  key={order.id}
-                  className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm space-y-2.5"
-                >
-                  {/* Order Header */}
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                    <div>
-                      <p className="text-xs font-black text-slate-900 font-mono">
-                        {order.invoice_number}
-                      </p>
-                      <p className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
-                        <Clock className="h-3 w-3" /> Tanggal: {order.order_date?.substring(0, 10)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                          order.payment_status === 'lunas'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {order.payment_status === 'lunas' ? 'LUNAS' : 'BELUM LUNAS'}
-                      </span>
-                      <p className="text-[10px] text-slate-400 mt-0.5 capitalize">
-                        Metode: {order.payment_method}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Items List: Tanggal, Nama Produk, Qty, Nominal */}
-                  <div className="space-y-1.5 text-xs">
-                    {(order.items || []).map((it, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 border border-slate-100 text-[11px]"
-                      >
-                        <div className="overflow-hidden pr-2">
-                          <p className="font-semibold text-slate-800 truncate">
-                            {it.product_name}
-                          </p>
-                          <p className="text-[10px] text-slate-400">
-                            {it.qty} {it.unit || 'pcs'} x Rp {Number(it.price).toLocaleString('id-ID')}
-                          </p>
-                        </div>
-                        <span className="font-extrabold text-slate-900 font-mono shrink-0">
-                          Rp {Number(it.total_price).toLocaleString('id-ID')}
-                        </span>
+              {purchaseHistory.map((order) => {
+                const oid = order.order_id || order.id;
+                return (
+                  <div
+                    key={oid}
+                    className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm space-y-2.5"
+                  >
+                    {/* Order Header */}
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <div>
+                        <p className="text-xs font-black text-slate-900 font-mono">
+                          {order.invoice_number}
+                        </p>
+                        <p className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                          <Clock className="h-3 w-3" /> Tanggal: {order.order_date?.substring(0, 10)}
+                        </p>
                       </div>
-                    ))}
-                  </div>
-
-                  {/* Order Total, Print & Retail Lunas Action */}
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                    <div>
-                      <span className="text-[11px] text-slate-500">Total Belanja:</span>
-                      <p className="text-sm font-black text-emerald-700">
-                        Rp {Number(order.grand_total).toLocaleString('id-ID')}
-                      </p>
+                      <div className="text-right">
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                            order.payment_status === 'lunas'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {order.payment_status === 'lunas' ? 'LUNAS' : 'BELUM LUNAS'}
+                        </span>
+                        <p className="text-[10px] text-slate-400 mt-0.5 capitalize">
+                          Metode: {order.payment_method}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      {/* Print Receipt Button via Bluetooth Thermal */}
-                      <button
-                        type="button"
-                        onClick={() => setReceiptOrder(order)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-all border border-blue-200"
-                        title="Cetak Struk Transaksi Bluetooth"
-                      >
-                        <Printer className="h-3.5 w-3.5" />
-                        <span>Cetak</span>
-                      </button>
+                    {/* Items List: Tanggal, Nama Produk, Qty, Nominal */}
+                    <div className="space-y-1.5 text-xs">
+                      {(order.items || []).map((it, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 border border-slate-100 text-[11px]"
+                        >
+                          <div className="overflow-hidden pr-2">
+                            <p className="font-semibold text-slate-800 truncate">
+                              {it.product_name}
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              {it.qty} {it.unit || 'pcs'} x Rp {Number(it.price).toLocaleString('id-ID')}
+                            </p>
+                          </div>
+                          <span className="font-extrabold text-slate-900 font-mono shrink-0">
+                            Rp {Number(it.total_price).toLocaleString('id-ID')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
 
-                      {/* Sales can mark LUNAS directly for any store type (ritel, grosir, agen, apotek) */}
-                      {order.payment_status !== 'lunas' ? (
+                    {/* Order Total, Print & Retail Lunas Action */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                      <div>
+                        <span className="text-[11px] text-slate-500">Total Belanja:</span>
+                        <p className="text-sm font-black text-emerald-700">
+                          Rp {Number(order.grand_total).toLocaleString('id-ID')}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleUpdatePaymentStatus(order.id, 'lunas')}
-                          disabled={updatingRetailId === order.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold transition-all shadow-sm shadow-emerald-200 disabled:opacity-50"
+                          onClick={() => setReceiptOrder(order)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-all border border-blue-200"
+                          title="Cetak Struk Transaksi Bluetooth"
                         >
-                          <CheckCircle className="h-3.5 w-3.5" />
-                          <span>{updatingRetailId === order.id ? 'Memproses...' : 'Tandai Lunas'}</span>
+                          <Printer className="h-3.5 w-3.5" />
+                          <span>Cetak</span>
                         </button>
-                      ) : (
-                        <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold">
-                          <CheckCircle className="h-3.5 w-3.5" /> Terbayar Lunas
-                        </span>
-                      )}
+
+                        {order.payment_status !== 'lunas' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdatePaymentStatus(oid, 'lunas')}
+                            disabled={updatingRetailId === oid}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold transition-all shadow-sm shadow-emerald-200 disabled:opacity-50"
+                          >
+                            <CheckCircle className="h-3.5 w-3.5" />
+                            <span>{updatingRetailId === oid ? 'Memproses...' : 'Tandai Lunas'}</span>
+                          </button>
+                        ) : (
+                          <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold">
+                            <CheckCircle className="h-3.5 w-3.5" /> Terbayar Lunas
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-6 text-xs text-slate-400">
@@ -701,6 +1102,18 @@ export default function CustomerList() {
           </div>
         </div>
       </Modal>
+
+      {/* Delete Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={deleteOpen}
+        onClose={() => {
+          setDeleteOpen(false);
+          setDeleteTarget(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Hapus Data Toko"
+        message={`Apakah Anda yakin ingin menghapus toko "${deleteTarget?.name || ''}" dari database?`}
+      />
 
       {/* Re-print Receipt Modal */}
       <ReceiptModal

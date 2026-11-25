@@ -47,6 +47,8 @@ export default function UsersManagement() {
     phone: '',
     vehicle_type: 'van',
     vehicle_number: '',
+    work_start_time: '08:00',
+    work_end_time: '15:00',
     is_active: 1
   });
 
@@ -87,6 +89,8 @@ export default function UsersManagement() {
       phone: '',
       vehicle_type: 'van',
       vehicle_number: '',
+      work_start_time: '08:00',
+      work_end_time: '15:00',
       is_active: 1
     });
     setModalOpen(true);
@@ -103,6 +107,8 @@ export default function UsersManagement() {
       phone: u.phone || '',
       vehicle_type: u.vehicle_type || 'van',
       vehicle_number: u.vehicle_number || '',
+      work_start_time: u.work_start_time ? u.work_start_time.substring(0, 5) : '08:00',
+      work_end_time: u.work_end_time ? u.work_end_time.substring(0, 5) : '15:00',
       is_active: u.is_active !== undefined ? u.is_active : 1
     });
     setModalOpen(true);
@@ -304,7 +310,10 @@ export default function UsersManagement() {
                             <span className="font-bold text-slate-800 flex items-center gap-1">
                               {u.vehicle_type === 'motor' ? '🛵 Motoris' : '🚐 Mobil Van'}
                             </span>
-                            <span className="text-[10px] text-slate-400">{u.vehicle_number || '-'}</span>
+                            <span className="text-[10px] text-slate-400 block">{u.vehicle_number || '-'}</span>
+                            <span className="text-[10px] text-emerald-700 font-mono font-semibold">
+                              Jam: {u.work_start_time ? u.work_start_time.substring(0, 5) : '08:00'} - {u.work_end_time ? u.work_end_time.substring(0, 5) : '15:00'}
+                            </span>
                           </div>
                         ) : (
                           <span className="text-slate-400 italic">Pusat / Kantor</span>
@@ -486,6 +495,33 @@ export default function UsersManagement() {
                   />
                 </div>
               </div>
+
+              {currentUser?.role === 'admin' && (
+                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+                  <div>
+                    <label className="block text-[10px] text-emerald-700 font-bold mb-0.5">
+                      Jam Masuk Kerja (Admin)
+                    </label>
+                    <input
+                      type="time"
+                      value={form.work_start_time}
+                      onChange={(e) => setForm({ ...form, work_start_time: e.target.value })}
+                      className="w-full rounded-lg border border-slate-200 p-2 text-slate-800 font-mono font-bold bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-blue-700 font-bold mb-0.5">
+                      Jam Pulang Kerja (Admin)
+                    </label>
+                    <input
+                      type="time"
+                      value={form.work_end_time}
+                      onChange={(e) => setForm({ ...form, work_end_time: e.target.value })}
+                      className="w-full rounded-lg border border-slate-200 p-2 text-slate-800 font-mono font-bold bg-white"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

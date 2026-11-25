@@ -12,10 +12,12 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   AlertCircle,
-  BarChart3
+  BarChart3,
+  Plus
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
+import AddBranchCityModal from '../../components/owner/AddBranchCityModal';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
 
@@ -53,6 +55,7 @@ export default function OwnerBranchReport() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedCity, setSelectedCity] = useState('all');
+  const [addCityOpen, setAddCityOpen] = useState(false);
 
   useEffect(() => {
     fetchBranchAnalytics();
@@ -322,7 +325,16 @@ export default function OwnerBranchReport() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setAddCityOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold shadow-sm shadow-blue-200 transition-all"
+            title="Tambah Kota / Cabang (All Jawa Timur)"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Tambah Kota / Cabang</span>
+          </button>
+
           <button
             onClick={fetchBranchAnalytics}
             disabled={loading}
@@ -430,7 +442,7 @@ export default function OwnerBranchReport() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={selectedCity}
             onChange={(e) => setSelectedCity(e.target.value)}
@@ -443,6 +455,16 @@ export default function OwnerBranchReport() {
               </option>
             ))}
           </select>
+
+          <button
+            type="button"
+            onClick={() => setAddCityOpen(true)}
+            className="flex items-center gap-1 px-3 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold transition-colors"
+            title="Tambah Kota / Cabang Baru"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Tambah Kota</span>
+          </button>
         </div>
       </div>
 
@@ -673,6 +695,14 @@ export default function OwnerBranchReport() {
           </table>
         </div>
       </div>
+
+      {/* Modal Tambah Kota / Cabang (All Jawa Timur & Manual) */}
+      <AddBranchCityModal
+        isOpen={addCityOpen}
+        onClose={() => setAddCityOpen(false)}
+        existingCities={availableCities}
+        onSuccess={fetchBranchAnalytics}
+      />
     </AdminLayout>
   );
 }
