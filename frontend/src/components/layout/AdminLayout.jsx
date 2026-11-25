@@ -143,23 +143,6 @@ export default function AdminLayout({ children }) {
             );
           })}
 
-          {/* Quick Access to other panels for dual roles or testing */}
-          {isOwner && (
-            <>
-              <div className="pt-4 px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Akses Operasional
-              </div>
-              <Link
-                to="/admin"
-                onClick={() => setSidebarOpen(false)}
-                className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800/80 hover:text-white transition-all group"
-              >
-                <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                <span>Buka Panel Supervisor</span>
-              </Link>
-            </>
-          )}
-
           <div className="pt-4 px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
             Mode Lapangan
           </div>
