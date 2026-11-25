@@ -16,11 +16,14 @@ import {
   FileSpreadsheet,
   Award,
   BarChart3,
-  Plus
+  Plus,
+  Trash2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
 import Modal from '../../components/common/Modal';
+import ConfirmDialog from '../../components/common/ConfirmDialog';
+import AppSelect from '../../components/common/AppSelect';
 import AddBranchCityModal from '../../components/owner/AddBranchCityModal';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
@@ -59,10 +62,78 @@ export default function OwnerCityTargets() {
     new Date().toISOString().substring(0, 7)
   );
 
-  // Modal Atur Target Kota & Tambah Kota Cabang
+  // Modal Atur Target Kota & Tambah/Edit/Hapus Kota Cabang
   const [addCityOpen, setAddCityOpen] = useState(false);
+  const [selectedCityFilter, setSelectedCityFilter] = useState('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCity, setEditingCity] = useState(null);
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [renameForm, setRenameForm] = useState({ city_name: '', province_name: 'Jawa Timur', notes: '' });
+  const [savingRename, setSavingRename] = useState(false);
+  const [deleteCityTarget, setDeleteCityTarget] = useState(null);
+  const [deleteCityOpen, setDeleteCityOpen] = useState(false);
+
+  const handleOpenRenameCity = (cityItem) => {
+    setRenameTarget(cityItem);
+    setRenameForm({
+      city_name: cityItem.city_name || '',
+      province_name: cityItem.province_name || 'Jawa Timur',
+      notes: cityItem.branch_notes || '',
+    });
+    setRenameModalOpen(true);
+  };
+
+  const handleSaveRenameCity = async (e) => {
+    e.preventDefault();
+    if (!renameTarget || !renameForm.city_name.trim()) {
+      toast.error('Nama kota wajib diisi');
+      return;
+    }
+    setSavingRename(true);
+    try {
+      const nextName = renameForm.city_name.trim();
+      if (renameTarget.branch_id) {
+        await request.put(API_ENDPOINTS.BRANCHES.UPDATE(renameTarget.branch_id), {
+          city_name: nextName,
+          province_name: renameForm.province_name.trim() || 'Jawa Timur',
+          notes: renameForm.notes,
+        });
+      } else {
+        await request.put(API_ENDPOINTS.BRANCHES.RENAME, {
+          old_city_name: renameTarget.city_name,
+          city_name: nextName,
+          province_name: renameForm.province_name.trim() || 'Jawa Timur',
+          notes: renameForm.notes,
+        });
+      }
+      toast.success(`Kota berhasil diubah menjadi "${nextName}"!`);
+      setRenameModalOpen(false);
+      fetchCityTargets();
+    } catch (err) {
+      toast.error(err.message || 'Gagal mengubah data kota');
+    } finally {
+      setSavingRename(false);
+    }
+  };
+
+  const handleConfirmDeleteCity = async () => {
+    if (!deleteCityTarget) return;
+    try {
+      let res;
+      if (deleteCityTarget.branch_id && Number(deleteCityTarget.total_customers || 0) === 0) {
+        res = await request.del(API_ENDPOINTS.BRANCHES.DELETE(deleteCityTarget.branch_id));
+      } else {
+        res = await request.del(API_ENDPOINTS.BRANCHES.DELETE_BY_NAME(deleteCityTarget.city_name));
+      }
+      toast.success(res.message || `Kota "${deleteCityTarget.city_name}" berhasil dihapus!`);
+      setDeleteCityOpen(false);
+      setDeleteCityTarget(null);
+      fetchCityTargets();
+    } catch (err) {
+      toast.error(err.message || 'Gagal menghapus kota');
+    }
+  };
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     city_name: '',
@@ -440,16 +511,30 @@ export default function OwnerCityTargets() {
 
         {/* City Targets Table */}
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5 text-emerald-600" />
-              <h3 className="text-sm font-bold text-slate-800">
-                Rincian Akumulasi Target & Realisasi Tiap Kategori Kota
-              </h3>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">
+                  Rincian Akumulasi Target & Realisasi Tiap Kategori Kota
+                </h3>
+                <span className="text-[11px] text-slate-400">
+                  {cities.length} Wilayah Kota Terdaftar
+                </span>
+              </div>
             </div>
-            <span className="text-xs text-slate-400">
-              {cities.length} Wilayah Kota Terdaftar
-            </span>
+            <div className="w-full sm:w-64">
+              <AppSelect
+                value={selectedCityFilter}
+                onChange={(val) => setSelectedCityFilter(val || 'all')}
+                placeholder="Cari / Filter Kota..."
+                isSearchable={true}
+                options={[
+                  { value: 'all', label: `Semua Kota (${cities.length} Wilayah)` },
+                  ...cities.map((c) => ({ value: c.city_name, label: `📍 ${c.city_name}` })),
+                ]}
+              />
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -473,8 +558,10 @@ export default function OwnerCityTargets() {
                       Memuat target bulanan kota...
                     </td>
                   </tr>
-                ) : cities.length > 0 ? (
-                  cities.map((city, idx) => (
+                ) : cities.filter((c) => selectedCityFilter === 'all' || c.city_name === selectedCityFilter).length > 0 ? (
+                  cities
+                    .filter((c) => selectedCityFilter === 'all' || c.city_name === selectedCityFilter)
+                    .map((city, idx) => (
                     <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2">
@@ -531,12 +618,31 @@ export default function OwnerCityTargets() {
                         </span>
                       </td>
 
-                      <td className="px-4 py-3.5 text-right">
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1">
                         <button
                           onClick={() => handleOpenEdit(city)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 font-bold text-xs transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 font-bold text-xs transition-colors"
                         >
-                          <Edit2 className="h-3 w-3" /> Atur Target
+                          <Edit2 className="h-3 w-3" /> Target
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenRenameCity(city)}
+                          className="p-1.5 rounded-xl border border-slate-200 text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                          title="Edit Nama Kota"
+                        >
+                          <Building2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteCityTarget(city);
+                            setDeleteCityOpen(true);
+                          }}
+                          className="p-1.5 rounded-xl border border-slate-200 text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                          title="Hapus Kota"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </td>
                     </tr>
@@ -677,6 +783,78 @@ export default function OwnerCityTargets() {
         onClose={() => setAddCityOpen(false)}
         existingCities={cities.map((c) => c.city_name)}
         onSuccess={fetchCityTargets}
+      />
+
+      {/* Modal Edit Nama Kota */}
+      <Modal
+        isOpen={renameModalOpen}
+        onClose={() => setRenameModalOpen(false)}
+        title={`Edit Data Kota - ${renameTarget?.city_name || ''}`}
+      >
+        <form onSubmit={handleSaveRenameCity} className="space-y-4 text-xs">
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Nama Kota / Kabupaten *
+            </label>
+            <input
+              type="text"
+              required
+              value={renameForm.city_name}
+              onChange={(e) => setRenameForm({ ...renameForm, city_name: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 font-bold"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Provinsi
+            </label>
+            <input
+              type="text"
+              value={renameForm.province_name}
+              onChange={(e) => setRenameForm({ ...renameForm, province_name: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Catatan Cabang (Opsional)
+            </label>
+            <textarea
+              rows={2}
+              value={renameForm.notes}
+              onChange={(e) => setRenameForm({ ...renameForm, notes: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800"
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setRenameModalOpen(false)}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={savingRename}
+              className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow disabled:opacity-50"
+            >
+              {savingRename ? 'Menyimpan...' : 'Simpan Perubahan'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Confirm Hapus Kota */}
+      <ConfirmDialog
+        isOpen={deleteCityOpen}
+        onClose={() => {
+          setDeleteCityOpen(false);
+          setDeleteCityTarget(null);
+        }}
+        onConfirm={handleConfirmDeleteCity}
+        title="Hapus Kota / Cabang"
+        message={`Apakah Anda yakin ingin menghapus kota "${deleteCityTarget?.city_name || ''}" dari daftar cabang & target bulanan?`}
       />
     </AdminLayout>
   );

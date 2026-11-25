@@ -168,7 +168,11 @@ export const API_ENDPOINTS = {
     LIST: "/branches",
     CREATE: "/branches",
     BATCH: "/branches/batch",
+    SYNC: "/branches/sync",
+    UPDATE: (id) => `/branches/${id}`,
+    RENAME: "/branches/rename",
     DELETE: (id) => `/branches/${id}`,
+    DELETE_BY_NAME: (name) => `/branches/by-name/${encodeURIComponent(name)}`,
   },
 
   OWNER: {

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AttendanceReminder from '../sales/AttendanceReminder';
+import PWAInstallPrompt from '../common/PWAInstallPrompt';
 
 export default function MobileLayout({ children, title, showBack = false }) {
   const location = useLocation();
@@ -85,8 +86,9 @@ export default function MobileLayout({ children, title, showBack = false }) {
         </header>
 
         {/* Content Body */}
-        <main className="flex-1 p-4 overflow-y-auto">
+        <main className="flex-1 p-4 overflow-y-auto space-y-3">
           {location.pathname !== '/sales/absensi' && <AttendanceReminder />}
+          <PWAInstallPrompt variant="banner" dismissible={true} />
           {children}
         </main>
 

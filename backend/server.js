@@ -557,28 +557,30 @@ app.get('/api/users', authenticateToken, async (req, res) => {
     const search = req.query.search ? `%${req.query.search}%` : '%';
     const role = req.query.role || null;
 
-    let query = 'SELECT id, name, username, email, role, phone, avatar, vehicle_type, vehicle_number, work_start_time, work_end_time, is_active, created_at FROM users WHERE (name LIKE ? OR username LIKE ? OR phone LIKE ?)';
+    let whereClause = 'WHERE (name LIKE ? OR username LIKE ? OR phone LIKE ?)';
     let params = [search, search, search];
 
+    // Akun Owner tidak boleh muncul di daftar manajemen user Admin/Supervisor
+    if (req.user.role !== 'owner') {
+      whereClause += " AND role != 'owner'";
+    }
+
     if (role) {
-      query += ' AND role = ?';
+      whereClause += ' AND role = ?';
       params.push(role);
     }
 
-    let countQuery = 'SELECT COUNT(*) as total FROM users WHERE (name LIKE ? OR username LIKE ? OR phone LIKE ?)';
-    let countParams = [search, search, search];
-    if (role) {
-      countQuery += ' AND role = ?';
-      countParams.push(role);
-    }
-
-    const [countResult] = await pool.query(countQuery, countParams);
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total FROM users ${whereClause}`,
+      params
+    );
     const total = countResult[0].total;
 
-    query += ' ORDER BY id DESC LIMIT ? OFFSET ?';
-    params.push(limit, offset);
-
-    const [rows] = await pool.query(query, params);
+    const [rows] = await pool.query(
+      `SELECT id, name, username, email, role, phone, avatar, vehicle_type, vehicle_number, work_start_time, work_end_time, is_active, created_at
+       FROM users ${whereClause} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
 
     return successResponse(res, rows, {
       page,
@@ -597,6 +599,9 @@ app.post('/api/users', authenticateToken, async (req, res) => {
     const { name, username, email, password, role, phone, vehicle_type, vehicle_number, work_start_time, work_end_time } = req.body;
     if (!name || !username || !email || !password) {
       return errorResponse(res, 'Semua data wajib diisi', 400);
+    }
+    if (role === 'owner' && req.user.role !== 'owner') {
+      return errorResponse(res, 'Tidak memiliki izin membuat akun Owner', 403);
     }
 
     const startTime = req.user.role === 'admin' && work_start_time ? work_start_time : '08:00:00';
@@ -619,7 +624,18 @@ app.post('/api/users', authenticateToken, async (req, res) => {
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const [targetRows] = await pool.query('SELECT role FROM users WHERE id = ?', [id]);
+    if (targetRows.length === 0) {
+      return errorResponse(res, 'User tidak ditemukan', 404);
+    }
+    if (targetRows[0].role === 'owner' && req.user.role !== 'owner') {
+      return errorResponse(res, 'Akun Owner tidak dapat diubah oleh Admin', 403);
+    }
+
     const { name, email, phone, role, vehicle_type, vehicle_number, password, is_active, work_start_time, work_end_time } = req.body;
+    if (role === 'owner' && req.user.role !== 'owner') {
+      return errorResponse(res, 'Tidak memiliki izin menetapkan role Owner', 403);
+    }
 
     let query = 'UPDATE users SET name = ?, email = ?, phone = ?, role = ?, vehicle_type = ?, vehicle_number = ?, is_active = ?';
     let params = [name, email, phone, role, vehicle_type, vehicle_number, is_active !== undefined ? is_active : 1];
@@ -687,6 +703,13 @@ app.put('/api/users/:id/work-schedule', authenticateToken, async (req, res) => {
 app.delete('/api/users/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const [targetRows] = await pool.query('SELECT role FROM users WHERE id = ?', [id]);
+    if (targetRows.length === 0) {
+      return errorResponse(res, 'User tidak ditemukan', 404);
+    }
+    if (targetRows[0].role === 'owner' && req.user.role !== 'owner') {
+      return errorResponse(res, 'Akun Owner tidak dapat dihapus oleh Admin', 403);
+    }
     await pool.query('DELETE FROM users WHERE id = ?', [id]);
     return successResponse(res, { id }, null, 'User berhasil dihapus');
   } catch (err) {
@@ -3061,13 +3084,28 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
 
     // Gabungkan daftar kota/cabang yang ditambahkan Owner di tabel branch_cities
     const [registeredBranches] = await pool.query(
-      'SELECT city_name FROM branch_cities WHERE is_active = 1 ORDER BY city_name ASC'
+      'SELECT id, city_name, province_name, regency_code, notes FROM branch_cities WHERE is_active = 1 ORDER BY city_name ASC'
     ).catch(() => [[]]);
+
+    // Lampirkan branch_id & province_name ke kota yang sudah ada di branchReports
+    for (const br of branchReports) {
+      const regMatch = registeredBranches.find(
+        (rb) => rb.city_name.toLowerCase() === br.branch_city.toLowerCase()
+      );
+      br.branch_id = regMatch ? regMatch.id : null;
+      br.province_name = regMatch ? regMatch.province_name : null;
+      br.regency_code = regMatch ? regMatch.regency_code : null;
+      br.notes = regMatch ? regMatch.notes : null;
+    }
 
     for (const rb of registeredBranches) {
       if (!branchReports.some(b => b.branch_city.toLowerCase() === rb.city_name.toLowerCase())) {
         branchReports.push({
+          branch_id: rb.id,
           branch_city: rb.city_name,
+          province_name: rb.province_name,
+          regency_code: rb.regency_code,
+          notes: rb.notes,
           total_customers: 0,
           total_orders: 0,
           revenue: 0,
@@ -3830,15 +3868,14 @@ app.get('/api/targets/cities', authenticateToken, async (req, res) => {
       [month]
     );
     const [branchCities] = await pool.query(
-      `SELECT DISTINCT city_name FROM branch_cities WHERE is_active = 1`
+      `SELECT id, city_name, province_name, regency_code, notes FROM branch_cities WHERE is_active = 1`
     ).catch(() => [[]]);
 
     const uniqueCityNames = Array.from(
       new Set([
         ...custCities.map((c) => c.city_name),
         ...targetCities.map((t) => t.city_name),
-        ...branchCities.map((b) => b.city_name),
-        'Kabupaten Bogor'
+        ...branchCities.map((b) => b.city_name)
       ])
     ).filter(Boolean).sort();
 
@@ -3870,6 +3907,7 @@ app.get('/api/targets/cities', authenticateToken, async (req, res) => {
 
     const result = cityList.map(item => {
       const cityName = item.city_name;
+      const br = branchCities.find(b => b.city_name.toLowerCase() === cityName.toLowerCase());
       const tgt = cityTargetRows.find(t => t.city_name.toLowerCase() === cityName.toLowerCase()) || {
         target_pack: 0,
         target_dus: 0,
@@ -3896,6 +3934,9 @@ app.get('/api/targets/cities', authenticateToken, async (req, res) => {
       const targetRupiah = parseFloat(tgt.target_rupiah || 0);
 
       return {
+        branch_id: br ? br.id : null,
+        province_name: br ? br.province_name : null,
+        branch_notes: br ? br.notes : null,
         city_name: cityName,
         month,
         target_pack: targetPack,
@@ -4082,15 +4123,375 @@ app.post('/api/branches/batch', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/branches/sync (Sinkronisasi Check = Tambah, Uncheck = Hapus Kota/Cabang dari wilayah.id)
+app.post('/api/branches/sync', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner yang dapat mengelola kota / cabang operasional', 403);
+    }
+    const { add_cities = [], remove_cities = [] } = req.body;
+
+    let added = 0;
+    for (const c of add_cities) {
+      const cityName = (c.city_name || c.name || '').trim();
+      if (!cityName) continue;
+      await pool.query(
+        `INSERT INTO branch_cities (city_name, province_name, regency_code, is_active, created_by)
+         VALUES (?, ?, ?, 1, ?)
+         ON DUPLICATE KEY UPDATE
+           is_active = 1,
+           province_name = VALUES(province_name),
+           regency_code = IFNULL(VALUES(regency_code), regency_code)`,
+        [cityName, c.province_name || c.province || 'Jawa Timur', c.regency_code || c.code || null, req.user.id]
+      );
+      added++;
+    }
+
+    let removed = 0;
+    for (const name of remove_cities) {
+      const cityName = String(name || '').trim();
+      if (!cityName) continue;
+      await pool.query('DELETE FROM branch_cities WHERE LOWER(city_name) = LOWER(?)', [cityName]);
+      await pool.query('DELETE FROM city_targets WHERE LOWER(city_name) = LOWER(?)', [cityName]);
+      removed++;
+    }
+
+    const parts = [];
+    if (added > 0) parts.push(`${added} kota ditambahkan`);
+    if (removed > 0) parts.push(`${removed} kota dihapus`);
+    const msg = parts.length > 0 ? `Berhasil memperbarui cabang (${parts.join(', ')})` : 'Tidak ada perubahan kota';
+
+    return successResponse(res, { added, removed }, null, msg);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// POST /api/branches/sync (Sinkronisasi Check = Tambah, Uncheck = Hapus Kota/Cabang dari wilayah.id)
+app.post('/api/branches/sync', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner yang dapat mengelola kota / cabang operasional', 403);
+    }
+    const { add_cities = [], remove_cities = [] } = req.body;
+
+    let added = 0;
+    for (const c of add_cities) {
+      const cityName = (c.city_name || c.name || '').trim();
+      if (!cityName) continue;
+      await pool.query(
+        `INSERT INTO branch_cities (city_name, province_name, regency_code, is_active, created_by)
+         VALUES (?, ?, ?, 1, ?)
+         ON DUPLICATE KEY UPDATE
+           is_active = 1,
+           province_name = VALUES(province_name),
+           regency_code = IFNULL(VALUES(regency_code), regency_code)`,
+        [cityName, c.province_name || c.province || 'Jawa Timur', c.regency_code || c.code || null, req.user.id]
+      );
+      added++;
+    }
+
+    let removed = 0;
+    for (const name of remove_cities) {
+      const cityName = String(name || '').trim();
+      if (!cityName) continue;
+      await pool.query('DELETE FROM branch_cities WHERE LOWER(city_name) = LOWER(?)', [cityName]);
+      await pool.query('DELETE FROM city_targets WHERE LOWER(city_name) = LOWER(?)', [cityName]);
+      removed++;
+    }
+
+    const parts = [];
+    if (added > 0) parts.push(`${added} kota ditambahkan`);
+    if (removed > 0) parts.push(`${removed} kota dihapus`);
+    const msg = parts.length > 0 ? `Berhasil memperbarui cabang (${parts.join(', ')})` : 'Tidak ada perubahan kota';
+
+    return successResponse(res, { added, removed }, null, msg);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/branches/rename (Owner Edit / Rename Kota berdasarkan nama lama, meski belum ada di branch_cities)
+app.put('/api/branches/rename', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner yang dapat mengubah data kota / cabang', 403);
+    }
+    const { old_city_name, city_name, province_name, regency_code, notes } = req.body;
+    const newName = (city_name || '').trim();
+    const oldName = (old_city_name || '').trim();
+    if (!newName) {
+      return errorResponse(res, 'Nama kota / kabupaten baru wajib diisi', 400);
+    }
+
+    if (oldName) {
+      const [existingRows] = await pool.query(
+        'SELECT id FROM branch_cities WHERE LOWER(city_name) = LOWER(?)',
+        [oldName]
+      );
+      if (existingRows.length > 0) {
+        await pool.query(
+          'UPDATE branch_cities SET city_name = ?, province_name = ?, regency_code = ?, notes = ? WHERE id = ?',
+          [newName, province_name || 'Jawa Timur', regency_code || null, notes || null, existingRows[0].id]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO branch_cities (city_name, province_name, regency_code, is_active, notes, created_by)
+           VALUES (?, ?, ?, 1, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             province_name = VALUES(province_name),
+             regency_code = IFNULL(VALUES(regency_code), regency_code),
+             notes = VALUES(notes),
+             is_active = 1`,
+          [newName, province_name || 'Jawa Timur', regency_code || null, notes || null, req.user.id]
+        );
+      }
+
+      if (oldName.toLowerCase() !== newName.toLowerCase()) {
+        await pool.query(
+          'UPDATE customers SET regency_name = ?, province_name = IFNULL(?, province_name) WHERE LOWER(regency_name) = LOWER(?)',
+          [newName, province_name || null, oldName]
+        );
+        await pool.query(
+          'UPDATE city_targets SET city_name = ? WHERE LOWER(city_name) = LOWER(?)',
+          [newName, oldName]
+        );
+      }
+    }
+
+    return successResponse(res, { city_name: newName, province_name }, null, `Kota/Cabang berhasil diperbarui menjadi "${newName}"`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/branches/:id (Owner Edit Kota / Cabang)
+app.put('/api/branches/:id', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner yang dapat mengubah data kota / cabang', 403);
+    }
+    const { id } = req.params;
+    const { city_name, province_name, regency_code, notes, is_active } = req.body;
+    const newName = (city_name || '').trim();
+    if (!newName) {
+      return errorResponse(res, 'Nama kota / kabupaten wajib diisi', 400);
+    }
+
+    const [existingRows] = await pool.query('SELECT * FROM branch_cities WHERE id = ?', [id]);
+    if (existingRows.length === 0) {
+      return errorResponse(res, 'Data kota cabang tidak ditemukan', 404);
+    }
+    const oldName = existingRows[0].city_name;
+
+    await pool.query(
+      `UPDATE branch_cities SET
+        city_name = ?, province_name = ?, regency_code = ?, notes = ?, is_active = ?
+       WHERE id = ?`,
+      [
+        newName,
+        province_name || existingRows[0].province_name || 'Jawa Timur',
+        regency_code !== undefined ? regency_code : existingRows[0].regency_code,
+        notes !== undefined ? notes : existingRows[0].notes,
+        is_active !== undefined ? (is_active ? 1 : 0) : existingRows[0].is_active,
+        id
+      ]
+    );
+
+    if (oldName && oldName.toLowerCase() !== newName.toLowerCase()) {
+      await pool.query(
+        'UPDATE customers SET regency_name = ?, province_name = IFNULL(?, province_name) WHERE LOWER(regency_name) = LOWER(?)',
+        [newName, province_name || null, oldName]
+      );
+      await pool.query(
+        'UPDATE city_targets SET city_name = ? WHERE LOWER(city_name) = LOWER(?)',
+        [newName, oldName]
+      );
+    }
+
+    return successResponse(res, { id, city_name: newName }, null, `Kota/Cabang "${newName}" berhasil diperbarui!`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// DELETE /api/branches/by-name/:cityName (Hapus Kota berdasarkan nama)
+app.delete('/api/branches/by-name/:cityName', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner yang dapat menghapus kota / cabang', 403);
+    }
+    const cityName = decodeURIComponent(req.params.cityName || '').trim();
+    if (!cityName) {
+      return errorResponse(res, 'Nama kota tidak valid', 400);
+    }
+
+    await pool.query('DELETE FROM branch_cities WHERE LOWER(city_name) = LOWER(?)', [cityName]);
+    await pool.query('DELETE FROM city_targets WHERE LOWER(city_name) = LOWER(?)', [cityName]);
+
+    const [custCheck] = await pool.query(
+      'SELECT COUNT(*) as cnt FROM customers WHERE LOWER(regency_name) = LOWER(?)',
+      [cityName]
+    );
+    const remainingCustomers = custCheck[0]?.cnt || 0;
+    const msg = remainingCustomers > 0
+      ? `Kota "${cityName}" dihapus dari master cabang & target (catatan: masih ada ${remainingCustomers} toko terdaftar di kota ini)`
+      : `Kota/Cabang "${cityName}" berhasil dihapus!`;
+
+    return successResponse(res, { city_name: cityName, remaining_customers: remainingCustomers }, null, msg);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/branches/rename (Owner Edit / Rename Kota berdasarkan nama lama, meski belum ada di branch_cities)
+app.put('/api/branches/rename', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner yang dapat mengubah data kota / cabang', 403);
+    }
+    const { old_city_name, city_name, province_name, regency_code, notes } = req.body;
+    const newName = (city_name || '').trim();
+    const oldName = (old_city_name || '').trim();
+    if (!newName) {
+      return errorResponse(res, 'Nama kota / kabupaten baru wajib diisi', 400);
+    }
+
+    if (oldName) {
+      const [existingRows] = await pool.query(
+        'SELECT id FROM branch_cities WHERE LOWER(city_name) = LOWER(?)',
+        [oldName]
+      );
+      if (existingRows.length > 0) {
+        await pool.query(
+          'UPDATE branch_cities SET city_name = ?, province_name = ?, regency_code = ?, notes = ? WHERE id = ?',
+          [newName, province_name || 'Jawa Timur', regency_code || null, notes || null, existingRows[0].id]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO branch_cities (city_name, province_name, regency_code, is_active, notes, created_by)
+           VALUES (?, ?, ?, 1, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             province_name = VALUES(province_name),
+             regency_code = IFNULL(VALUES(regency_code), regency_code),
+             notes = VALUES(notes),
+             is_active = 1`,
+          [newName, province_name || 'Jawa Timur', regency_code || null, notes || null, req.user.id]
+        );
+      }
+
+      if (oldName.toLowerCase() !== newName.toLowerCase()) {
+        await pool.query(
+          'UPDATE customers SET regency_name = ?, province_name = IFNULL(?, province_name) WHERE LOWER(regency_name) = LOWER(?)',
+          [newName, province_name || null, oldName]
+        );
+        await pool.query(
+          'UPDATE city_targets SET city_name = ? WHERE LOWER(city_name) = LOWER(?)',
+          [newName, oldName]
+        );
+      }
+    }
+
+    return successResponse(res, { city_name: newName, province_name }, null, `Kota/Cabang berhasil diperbarui menjadi "${newName}"`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/branches/:id (Owner Edit Kota / Cabang)
+app.put('/api/branches/:id', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner yang dapat mengubah data kota / cabang', 403);
+    }
+    const { id } = req.params;
+    const { city_name, province_name, regency_code, notes, is_active } = req.body;
+    const newName = (city_name || '').trim();
+    if (!newName) {
+      return errorResponse(res, 'Nama kota / kabupaten wajib diisi', 400);
+    }
+
+    const [existingRows] = await pool.query('SELECT * FROM branch_cities WHERE id = ?', [id]);
+    if (existingRows.length === 0) {
+      return errorResponse(res, 'Data kota cabang tidak ditemukan', 404);
+    }
+    const oldName = existingRows[0].city_name;
+
+    await pool.query(
+      `UPDATE branch_cities SET
+        city_name = ?, province_name = ?, regency_code = ?, notes = ?, is_active = ?
+       WHERE id = ?`,
+      [
+        newName,
+        province_name || existingRows[0].province_name || 'Jawa Timur',
+        regency_code !== undefined ? regency_code : existingRows[0].regency_code,
+        notes !== undefined ? notes : existingRows[0].notes,
+        is_active !== undefined ? (is_active ? 1 : 0) : existingRows[0].is_active,
+        id
+      ]
+    );
+
+    if (oldName && oldName.toLowerCase() !== newName.toLowerCase()) {
+      await pool.query(
+        'UPDATE customers SET regency_name = ?, province_name = IFNULL(?, province_name) WHERE LOWER(regency_name) = LOWER(?)',
+        [newName, province_name || null, oldName]
+      );
+      await pool.query(
+        'UPDATE city_targets SET city_name = ? WHERE LOWER(city_name) = LOWER(?)',
+        [newName, oldName]
+      );
+    }
+
+    return successResponse(res, { id, city_name: newName }, null, `Kota/Cabang "${newName}" berhasil diperbarui!`);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// DELETE /api/branches/by-name/:cityName (Hapus Kota berdasarkan nama)
+app.delete('/api/branches/by-name/:cityName', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
+      return errorResponse(res, 'Hanya Owner yang dapat menghapus kota / cabang', 403);
+    }
+    const cityName = decodeURIComponent(req.params.cityName || '').trim();
+    if (!cityName) {
+      return errorResponse(res, 'Nama kota tidak valid', 400);
+    }
+
+    await pool.query('DELETE FROM branch_cities WHERE LOWER(city_name) = LOWER(?)', [cityName]);
+    await pool.query('DELETE FROM city_targets WHERE LOWER(city_name) = LOWER(?)', [cityName]);
+
+    const [custCheck] = await pool.query(
+      'SELECT COUNT(*) as cnt FROM customers WHERE LOWER(regency_name) = LOWER(?)',
+      [cityName]
+    );
+    const remainingCustomers = custCheck[0]?.cnt || 0;
+    const msg = remainingCustomers > 0
+      ? `Kota "${cityName}" dihapus dari master cabang & target (catatan: masih ada ${remainingCustomers} toko terdaftar di kota ini)`
+      : `Kota/Cabang "${cityName}" berhasil dihapus!`;
+
+    return successResponse(res, { city_name: cityName, remaining_customers: remainingCustomers }, null, msg);
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
 // DELETE /api/branches/:id
 app.delete('/api/branches/:id', authenticateToken, async (req, res) => {
   try {
-    if (req.user.role !== 'owner') {
+    if (req.user.role !== 'owner' && req.user.role !== 'admin') {
       return errorResponse(res, 'Hanya Owner yang dapat menghapus kota / cabang', 403);
     }
     const { id } = req.params;
+    const [existingRows] = await pool.query('SELECT city_name FROM branch_cities WHERE id = ?', [id]);
+    const cityName = existingRows[0]?.city_name;
+
     await pool.query('DELETE FROM branch_cities WHERE id = ?', [id]);
-    return successResponse(res, { id }, null, 'Kota/Cabang berhasil dihapus');
+    if (cityName) {
+      await pool.query('DELETE FROM city_targets WHERE LOWER(city_name) = LOWER(?)', [cityName]);
+    }
+    return successResponse(res, { id, city_name: cityName }, null, `Kota/Cabang "${cityName || id}" berhasil dihapus`);
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }

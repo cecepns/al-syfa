@@ -13,10 +13,15 @@ import {
   CheckCircle2,
   AlertCircle,
   BarChart3,
-  Plus
+  Plus,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
+import Modal from '../../components/common/Modal';
+import ConfirmDialog from '../../components/common/ConfirmDialog';
+import AppSelect from '../../components/common/AppSelect';
 import AddBranchCityModal from '../../components/owner/AddBranchCityModal';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
@@ -56,6 +61,81 @@ export default function OwnerBranchReport() {
   const [search, setSearch] = useState('');
   const [selectedCity, setSelectedCity] = useState('all');
   const [addCityOpen, setAddCityOpen] = useState(false);
+
+  // Edit & Delete Branch City State
+  const [editBranchModalOpen, setEditBranchModalOpen] = useState(false);
+  const [editingBranch, setEditingBranch] = useState(null);
+  const [editBranchForm, setEditBranchForm] = useState({ city_name: '', province_name: '', notes: '' });
+  const [savingBranch, setSavingBranch] = useState(false);
+  const [deleteBranchTarget, setDeleteBranchTarget] = useState(null);
+  const [deleteBranchOpen, setDeleteBranchOpen] = useState(false);
+
+  const handleOpenEditBranch = (b) => {
+    setEditingBranch(b);
+    setEditBranchForm({
+      city_name: b.branch_city || '',
+      province_name: b.province_name || 'Jawa Timur',
+      notes: b.notes || '',
+    });
+    setEditBranchModalOpen(true);
+  };
+
+  const handleSaveEditBranch = async (e) => {
+    e.preventDefault();
+    if (!editingBranch || !editBranchForm.city_name.trim()) {
+      toast.error('Nama kota / cabang wajib diisi');
+      return;
+    }
+    setSavingBranch(true);
+    try {
+      const nextName = editBranchForm.city_name.trim();
+      if (editingBranch.branch_id) {
+        await request.put(API_ENDPOINTS.BRANCHES.UPDATE(editingBranch.branch_id), {
+          city_name: nextName,
+          province_name: editBranchForm.province_name.trim() || 'Jawa Timur',
+          notes: editBranchForm.notes,
+        });
+      } else {
+        await request.put(API_ENDPOINTS.BRANCHES.RENAME, {
+          old_city_name: editingBranch.branch_city,
+          city_name: nextName,
+          province_name: editBranchForm.province_name.trim() || 'Jawa Timur',
+          notes: editBranchForm.notes,
+        });
+      }
+      toast.success(`Kota/Cabang berhasil diperbarui menjadi "${nextName}"!`);
+      setEditBranchModalOpen(false);
+      if (selectedCity.toLowerCase() === (editingBranch.branch_city || '').toLowerCase()) {
+        setSelectedCity(nextName);
+      }
+      fetchBranchAnalytics();
+    } catch (err) {
+      toast.error(err.message || 'Gagal memperbarui kota cabang');
+    } finally {
+      setSavingBranch(false);
+    }
+  };
+
+  const handleConfirmDeleteBranch = async () => {
+    if (!deleteBranchTarget) return;
+    try {
+      let res;
+      if (deleteBranchTarget.branch_id && Number(deleteBranchTarget.total_customers || 0) === 0) {
+        res = await request.del(API_ENDPOINTS.BRANCHES.DELETE(deleteBranchTarget.branch_id));
+      } else {
+        res = await request.del(API_ENDPOINTS.BRANCHES.DELETE_BY_NAME(deleteBranchTarget.branch_city));
+      }
+      toast.success(res.message || `Kota "${deleteBranchTarget.branch_city}" berhasil dihapus!`);
+      if (selectedCity.toLowerCase() === (deleteBranchTarget.branch_city || '').toLowerCase()) {
+        setSelectedCity('all');
+      }
+      setDeleteBranchOpen(false);
+      setDeleteBranchTarget(null);
+      fetchBranchAnalytics();
+    } catch (err) {
+      toast.error(err.message || 'Gagal menghapus kota cabang');
+    }
+  };
 
   useEffect(() => {
     fetchBranchAnalytics();
@@ -442,28 +522,31 @@ export default function OwnerBranchReport() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={selectedCity}
-            onChange={(e) => setSelectedCity(e.target.value)}
-            className="text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-          >
-            <option value="all">-- Semua Cabang ({branches.length} Wilayah Kota) --</option>
-            {availableCities.map((cName) => (
-              <option key={cName} value={cName}>
-                📍 {cName}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+          <div className="w-full sm:w-72">
+            <AppSelect
+              value={selectedCity}
+              onChange={(val) => setSelectedCity(val || 'all')}
+              placeholder="Cari atau pilih kota / cabang..."
+              isSearchable={true}
+              options={[
+                { value: 'all', label: `Semua Cabang (${branches.length} Wilayah Kota)` },
+                ...availableCities.map((cName) => ({
+                  value: cName,
+                  label: `📍 ${cName}`,
+                })),
+              ]}
+            />
+          </div>
 
           <button
             type="button"
             onClick={() => setAddCityOpen(true)}
-            className="flex items-center gap-1 px-3 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold transition-colors"
-            title="Tambah Kota / Cabang Baru"
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold transition-colors shrink-0"
+            title="Tambah / Uncheck Hapus Kota Cabang (wilayah.id)"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span>Tambah Kota</span>
+            <span>Tambah / Hapus Kota</span>
           </button>
         </div>
       </div>
@@ -601,6 +684,7 @@ export default function OwnerBranchReport() {
                 <th className="px-4 py-3.5 text-center">Margin Laba</th>
                 <th className="px-4 py-3.5 text-center">Kontribusi</th>
                 <th className="px-4 py-3.5 text-center">Status</th>
+                <th className="px-4 py-3.5 text-right">Aksi Kota</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -621,7 +705,9 @@ export default function OwnerBranchReport() {
                             <strong className="text-slate-800 text-xs block font-bold">
                               {b.branch_city}
                             </strong>
-                            <span className="text-[10px] text-slate-400">Distribusi Aktif ALSYFA</span>
+                            <span className="text-[10px] text-slate-400">
+                              {b.province_name ? `${b.province_name} • ` : ''}Distribusi Aktif ALSYFA
+                            </span>
                           </div>
                         </div>
                       </td>
@@ -659,12 +745,33 @@ export default function OwnerBranchReport() {
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditBranch(b)}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                          title="Edit Kota / Cabang"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteBranchTarget(b);
+                            setDeleteBranchOpen(true);
+                          }}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                          title="Hapus Kota / Cabang"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
               ) : (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-slate-400">
+                  <td colSpan={10} className="px-4 py-10 text-center text-slate-400">
                     {search ? 'Tidak ada cabang kota yang cocok dengan kata kunci pencarian.' : 'Belum ada data transaksi cabang kota.'}
                   </td>
                 </tr>
@@ -689,6 +796,7 @@ export default function OwnerBranchReport() {
                   <td className="px-4 py-3 text-center text-emerald-700">+{avgMargin}%</td>
                   <td className="px-4 py-3 text-center">100%</td>
                   <td className="px-4 py-3 text-center">-</td>
+                  <td className="px-4 py-3 text-right">-</td>
                 </tr>
               </tfoot>
             )}
@@ -696,12 +804,85 @@ export default function OwnerBranchReport() {
         </div>
       </div>
 
-      {/* Modal Tambah Kota / Cabang (All Jawa Timur & Manual) */}
+      {/* Modal Tambah & Kelola Kota / Cabang (All Jawa Timur & Manual) */}
       <AddBranchCityModal
         isOpen={addCityOpen}
         onClose={() => setAddCityOpen(false)}
         existingCities={availableCities}
         onSuccess={fetchBranchAnalytics}
+      />
+
+      {/* Modal Edit Kota / Cabang */}
+      <Modal
+        isOpen={editBranchModalOpen}
+        onClose={() => setEditBranchModalOpen(false)}
+        title={`Edit Kota / Cabang - ${editingBranch?.branch_city || ''}`}
+      >
+        <form onSubmit={handleSaveEditBranch} className="space-y-4 text-xs">
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Nama Kota / Kabupaten *
+            </label>
+            <input
+              type="text"
+              required
+              value={editBranchForm.city_name}
+              onChange={(e) => setEditBranchForm({ ...editBranchForm, city_name: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800 font-bold"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Provinsi
+            </label>
+            <input
+              type="text"
+              value={editBranchForm.province_name}
+              onChange={(e) => setEditBranchForm({ ...editBranchForm, province_name: e.target.value })}
+              placeholder="Contoh: Jawa Timur"
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Catatan Wilayah (Opsional)
+            </label>
+            <textarea
+              rows={2}
+              value={editBranchForm.notes}
+              onChange={(e) => setEditBranchForm({ ...editBranchForm, notes: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 p-2.5 text-slate-800"
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setEditBranchModalOpen(false)}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={savingBranch}
+              className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow disabled:opacity-50"
+            >
+              {savingBranch ? 'Menyimpan...' : 'Simpan Perubahan'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Confirm Hapus Kota / Cabang */}
+      <ConfirmDialog
+        isOpen={deleteBranchOpen}
+        onClose={() => {
+          setDeleteBranchOpen(false);
+          setDeleteBranchTarget(null);
+        }}
+        onConfirm={handleConfirmDeleteBranch}
+        title="Hapus Kota / Cabang"
+        message={`Apakah Anda yakin ingin menghapus kota "${deleteBranchTarget?.branch_city || ''}" dari daftar cabang & target bulanan?`}
       />
     </AdminLayout>
   );

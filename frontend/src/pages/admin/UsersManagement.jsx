@@ -69,7 +69,8 @@ export default function UsersManagement() {
         search,
         role: roleFilter || undefined,
       });
-      setUsers(res.data || []);
+      const rawUsers = res.data || [];
+      setUsers(currentUser?.role === 'owner' ? rawUsers : rawUsers.filter((u) => u.role !== 'owner'));
       setPagination(res.pagination);
     } catch (err) {
       toast.error('Gagal memuat data pengguna');
@@ -199,6 +200,7 @@ export default function UsersManagement() {
         <div className="flex gap-1.5 overflow-x-auto w-full sm:w-auto text-xs pb-1 sm:pb-0">
           {[
             { key: '', label: 'Semua Role' },
+            ...(currentUser?.role === 'owner' ? [{ key: 'owner', label: 'Owner' }] : []),
             { key: 'admin', label: 'Admin (Manager)' },
             { key: 'supervisor', label: 'Supervisor' },
             { key: 'sales', label: 'Sales Lapangan' },
@@ -419,6 +421,7 @@ export default function UsersManagement() {
                   { value: 'sales', label: 'Sales Lapangan' },
                   { value: 'supervisor', label: 'Supervisor' },
                   { value: 'admin', label: 'Admin / Sales Manager' },
+                  ...(currentUser?.role === 'owner' ? [{ value: 'owner', label: 'Owner' }] : []),
                 ]}
               />
             </div>

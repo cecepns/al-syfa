@@ -26,6 +26,7 @@ import {
   Target
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import PWAInstallPrompt from '../common/PWAInstallPrompt';
 
 export default function AdminLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -60,6 +61,7 @@ export default function AdminLayout({ children }) {
     { label: 'Laba Cabang & Kota', path: '/owner/cabang', icon: Building2 },
     { label: 'Target Bulanan Kota', path: '/owner/target-kota', icon: Target },
     { label: 'Grafik Pertumbuhan', path: '/owner/pertumbuhan', icon: BarChart3 },
+    { label: 'Manajemen Users', path: '/owner/users', icon: Users },
   ];
 
   const menuItems = isOwner ? ownerMenuItems : adminMenuItems;
@@ -203,6 +205,8 @@ export default function AdminLayout({ children }) {
           </div>
 
           <div className="flex items-center gap-3">
+            <PWAInstallPrompt variant="button" />
+
             <Link
               to="/sales"
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 text-xs font-bold transition-colors"

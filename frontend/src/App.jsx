@@ -346,6 +346,14 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/owner/users"
+          element={
+            <ProtectedRoute allowedRoles={['owner', 'admin']}>
+              <UsersManagement />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Fallback Redirect */}
         <Route path="*" element={<DefaultRedirect />} />

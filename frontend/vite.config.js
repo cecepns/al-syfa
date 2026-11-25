@@ -8,27 +8,47 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      includeAssets: [
+        'favicon.ico',
+        'apple-touch-icon.png',
+        'pwa-192x192.png',
+        'pwa-512x512.png',
+        'pwa-maskable-512x512.png',
+        'logo-transparent.png'
+      ],
       manifest: {
-        name: 'Alsyifa Sales Field App',
-        short_name: 'Alsyifa Sales',
-        description: 'Aplikasi Mobile & Dashboard Manajemen Sales Lapangan Alsyifa',
-        theme_color: '#059669',
-        background_color: '#f8fafc',
+        name: 'ALSYFA',
+        short_name: 'ALSYFA',
+        description: 'Aplikasi Manajemen Distribusi & Sales Lapangan ALSYFA',
+        theme_color: '#ffffff',
+        background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',
+        start_url: '/',
+        scope: '/',
         icons: [
           {
             src: '/pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
             src: '/pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: '/pwa-maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
         ]
+      },
+      workbox: {
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024
       }
     })
   ],
