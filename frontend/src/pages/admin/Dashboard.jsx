@@ -88,7 +88,10 @@ export default function Dashboard() {
             Rp {Number(stats?.revenue_today || 0).toLocaleString('id-ID')}
           </h3>
           <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-            <Clock className="h-3 w-3" /> Pembaruan transaksi otomatis
+            <Clock className="h-3 w-3" />
+            {stats?.deposits_today > 0 && Number(stats?.invoice_orders_today || 0) === 0
+              ? `Dari ${stats.deposits_today} setoran harian hari ini`
+              : `Bulan ini: Rp ${Number(stats?.revenue_month || stats?.revenue_today || 0).toLocaleString('id-ID')}`}
           </p>
         </div>
 
@@ -117,10 +120,10 @@ export default function Dashboard() {
             </div>
           </div>
           <h3 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
-            {stats?.orders_today || 0} Faktur
+            {stats?.orders_today || 0} {Number(stats?.invoice_orders_today || 0) === 0 && Number(stats?.deposits_today || 0) > 0 ? 'Setoran' : 'Faktur'}
           </h3>
           <p className="text-[11px] text-slate-400 mt-1">
-            Dari {stats?.visits_today || 0} kunjungan toko
+            Dari {stats?.visits_today || 0} kunjungan / transaksi
           </p>
         </div>
 

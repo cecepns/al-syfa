@@ -80,6 +80,7 @@ const pool = mysql.createPool({
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'alsyifa_sales_db',
+  dateStrings: true,
   waitForConnections: true,
   connectionLimit: 15,
   queueLimit: 0
@@ -3354,31 +3355,63 @@ app.get('/api/accounting/summary', authenticateToken, async (req, res) => {
 // GET /api/dashboard/stats
 app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
-
-    const [visitsToday] = await pool.query('SELECT COUNT(*) as count FROM visits WHERE visit_date = ?', [today]);
-    const [ordersToday] = await pool.query('SELECT COUNT(*) as count, IFNULL(SUM(grand_total), 0) as revenue, COUNT(DISTINCT customer_id) as distinct_customers FROM orders WHERE order_date = ? AND status != "cancelled" AND status != "rejected"', [today]);
-    const [visitsWithOrder] = await pool.query('SELECT COUNT(*) as count FROM visits WHERE visit_date = ? AND result_type = "order"', [today]);
+    const [visitsToday] = await pool.query('SELECT COUNT(*) as count FROM visits WHERE visit_date = CURDATE()');
+    const [ordersToday] = await pool.query(
+      `SELECT COUNT(*) as count, IFNULL(SUM(grand_total), 0) as revenue, COUNT(DISTINCT customer_id) as distinct_customers
+       FROM orders
+       WHERE DATE(order_date) = CURDATE() AND status != 'cancelled' AND status != 'rejected'`
+    );
+    const [visitsWithOrder] = await pool.query('SELECT COUNT(*) as count FROM visits WHERE visit_date = CURDATE() AND result_type = "order"');
     const [unvisitedOrderCustomers] = await pool.query(
       `SELECT COUNT(DISTINCT o.customer_id) as count
        FROM orders o
-       WHERE o.order_date = ? AND o.status != 'cancelled' AND o.status != 'rejected'
+       WHERE DATE(o.order_date) = CURDATE() AND o.status != 'cancelled' AND o.status != 'rejected'
          AND NOT EXISTS (
-           SELECT 1 FROM visits v WHERE v.sales_id = o.sales_id AND v.customer_id = o.customer_id AND v.visit_date = ?
-         )`,
-      [today, today]
+           SELECT 1 FROM visits v WHERE v.sales_id = o.sales_id AND v.customer_id = o.customer_id AND v.visit_date = CURDATE()
+         )`
     );
+    // Include Setoran Harian Sales hari ini agar omset & transaksi tetap terbaca walau belum ada faktur order
+    const [depositsToday] = await pool.query(
+      `SELECT COUNT(*) as count,
+              IFNULL(SUM(total_sales_amount), 0) as total_sales,
+              IFNULL(SUM(net_deposit_amount), 0) as total_net
+       FROM daily_deposits
+       WHERE DATE(deposit_date) = CURDATE() AND status != 'rejected'`
+    );
+    const [monthSummary] = await pool.query(
+      `SELECT
+        (SELECT IFNULL(SUM(grand_total), 0) FROM orders WHERE DATE_FORMAT(order_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status != 'cancelled' AND status != 'rejected') as orders_month_rev,
+        (SELECT IFNULL(SUM(total_sales_amount), 0) FROM daily_deposits WHERE DATE_FORMAT(deposit_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status != 'rejected') as deposits_month_rev`
+    );
+
     const [activeSales] = await pool.query('SELECT COUNT(*) as count FROM users WHERE role = "sales" AND is_active = 1');
     const [totalCustomers] = await pool.query('SELECT COUNT(*) as count FROM customers WHERE is_active = 1');
 
-    const totalVisits = (visitsToday[0].count || 0) + (unvisitedOrderCustomers[0].count || 0);
-    const closingVisits = Math.max(visitsWithOrder[0].count || 0, ordersToday[0].distinct_customers || 0);
+    const explicitAndOrderVisits = (visitsToday[0].count || 0) + (unvisitedOrderCustomers[0].count || 0);
+    const depositCountToday = parseInt(depositsToday[0]?.count || 0);
+    const orderCountToday = parseInt(ordersToday[0]?.count || 0);
+    const orderRevToday = parseFloat(ordersToday[0]?.revenue || 0);
+    const depositRevToday = parseFloat(depositsToday[0]?.total_sales || 0);
+
+    const totalVisits = explicitAndOrderVisits > 0 ? explicitAndOrderVisits : depositCountToday;
+    const closingVisits = Math.max(visitsWithOrder[0].count || 0, ordersToday[0].distinct_customers || 0, orderCountToday === 0 ? depositCountToday : 0);
     const hitRate = totalVisits > 0 ? Math.min(100, Math.round((closingVisits / totalVisits) * 100)) : 0;
+
+    const effectiveOrdersToday = orderCountToday > 0 ? orderCountToday : depositCountToday;
+    const effectiveRevenueToday = orderRevToday > 0 ? orderRevToday : depositRevToday;
+    const revenueMonth = Math.max(
+      parseFloat(monthSummary[0]?.orders_month_rev || 0),
+      parseFloat(monthSummary[0]?.deposits_month_rev || 0)
+    );
 
     return successResponse(res, {
       visits_today: totalVisits,
-      orders_today: ordersToday[0].count,
-      revenue_today: parseFloat(ordersToday[0].revenue),
+      orders_today: effectiveOrdersToday,
+      invoice_orders_today: orderCountToday,
+      deposits_today: depositCountToday,
+      revenue_today: effectiveRevenueToday,
+      deposits_net_today: parseFloat(depositsToday[0]?.total_net || 0),
+      revenue_month: revenueMonth,
       hit_rate_percent: hitRate,
       active_sales_count: activeSales[0].count,
       total_customers: totalCustomers[0].count
@@ -3406,29 +3439,55 @@ app.get('/api/reports/sales-performance', authenticateToken, async (req, res) =>
               (SELECT COUNT(*) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected') as total_orders,
               (SELECT COUNT(DISTINCT CONCAT(o.customer_id, '-', o.order_date)) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected') as distinct_order_visits,
               (SELECT IFNULL(SUM(o.grand_total), 0) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected') as total_revenue,
-              (SELECT COUNT(*) FROM visits v WHERE v.sales_id = u.id AND v.result_type = 'order' AND v.visit_date BETWEEN ? AND ?) as explicit_closing_visits
+              (SELECT COUNT(*) FROM visits v WHERE v.sales_id = u.id AND v.result_type = 'order' AND v.visit_date BETWEEN ? AND ?) as explicit_closing_visits,
+              (SELECT COUNT(*) FROM daily_deposits dd WHERE dd.sales_id = u.id AND dd.deposit_date BETWEEN ? AND ? AND dd.status != 'rejected') as total_deposits,
+              (SELECT IFNULL(SUM(dd.total_sales_amount), 0) FROM daily_deposits dd WHERE dd.sales_id = u.id AND dd.deposit_date BETWEEN ? AND ? AND dd.status != 'rejected') as deposit_revenue
        FROM users u
        WHERE u.role = 'sales' AND u.is_active = 1
        ORDER BY total_revenue DESC`,
-      [startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate]
+      [
+        startDate, endDate,
+        startDate, endDate,
+        startDate, endDate,
+        startDate, endDate,
+        startDate, endDate,
+        startDate, endDate,
+        startDate, endDate,
+        startDate, endDate
+      ]
     );
 
     const formatted = rows.map(r => {
-      const totalVisits = (parseInt(r.explicit_visits || 0)) + (parseInt(r.unvisited_order_visits || 0));
-      const closingVisits = Math.max(parseInt(r.explicit_closing_visits || 0), parseInt(r.distinct_order_visits || 0));
+      const explicitAndOrderVisits = (parseInt(r.explicit_visits || 0)) + (parseInt(r.unvisited_order_visits || 0));
+      const orderCount = parseInt(r.total_orders || 0);
+      const depositCount = parseInt(r.total_deposits || 0);
+      const orderRevenue = parseFloat(r.total_revenue || 0);
+      const depositRevenue = parseFloat(r.deposit_revenue || 0);
+
+      const totalVisits = explicitAndOrderVisits > 0 ? explicitAndOrderVisits : depositCount;
+      const closingVisits = Math.max(
+        parseInt(r.explicit_closing_visits || 0),
+        parseInt(r.distinct_order_visits || 0),
+        orderCount === 0 ? depositCount : 0
+      );
       const hitRate = totalVisits > 0 ? Math.min(100, Math.round((closingVisits / totalVisits) * 100)) : 0;
+      const effectiveOrders = orderCount > 0 ? orderCount : depositCount;
+      const effectiveRevenue = orderRevenue > 0 ? orderRevenue : depositRevenue;
+
       return {
         sales_id: r.sales_id,
         sales_name: r.sales_name,
         vehicle_type: r.vehicle_type,
         vehicle_number: r.vehicle_number,
         total_visits: totalVisits,
-        total_orders: parseInt(r.total_orders || 0),
+        total_orders: effectiveOrders,
         closing_visits: closingVisits,
-        total_revenue: parseFloat(r.total_revenue || 0),
+        total_revenue: effectiveRevenue,
+        deposit_count: depositCount,
+        deposit_revenue: depositRevenue,
         hit_rate_percent: hitRate
       };
-    });
+    }).sort((a, b) => b.total_revenue - a.total_revenue);
 
     return successResponse(res, formatted);
   } catch (err) {

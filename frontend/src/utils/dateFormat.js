@@ -22,7 +22,19 @@ function extractYMDParts(input) {
     return { dd: dmyMatch[1], mm: dmyMatch[2], yyyy: dmyMatch[3] };
   }
 
-  // ISO YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss
+  // ISO timestamp with timezone (e.g. 2026-11-25T17:00:00.000Z) -> convert to local date first
+  if (/^\d{4}-\d{2}-\d{2}T.*(Z|[+-]\d{2}:?\d{2})$/i.test(str)) {
+    const parsedUtc = new Date(str);
+    if (!isNaN(parsedUtc.getTime())) {
+      return {
+        yyyy: String(parsedUtc.getFullYear()),
+        mm: String(parsedUtc.getMonth() + 1).padStart(2, '0'),
+        dd: String(parsedUtc.getDate()).padStart(2, '0'),
+      };
+    }
+  }
+
+  // Pure YYYY-MM-DD (or YYYY-MM-DD HH:mm:ss)
   const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) {
     return { yyyy: isoMatch[1], mm: isoMatch[2], dd: isoMatch[3] };
