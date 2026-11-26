@@ -381,15 +381,15 @@ app.get('/api/wilayah/regencies/:provinceCode', async (req, res) => {
     const fallback = provinceCode === '35'
       ? fallbackWilayah.regencies_35
       : provinceCode === '32'
-      ? fallbackWilayah.regencies_32
-      : [];
+        ? fallbackWilayah.regencies_32
+        : [];
     return successResponse(res, fallback);
   } catch (err) {
     const fallback = provinceCode === '35'
       ? fallbackWilayah.regencies_35
       : provinceCode === '32'
-      ? fallbackWilayah.regencies_32
-      : [];
+        ? fallbackWilayah.regencies_32
+        : [];
     return successResponse(res, fallback);
   }
 });
@@ -3356,7 +3356,6 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
 
-    // Total explicit visits today + distinct order customers today not already visited
     const [visitsToday] = await pool.query('SELECT COUNT(*) as count FROM visits WHERE visit_date = ?', [today]);
     const [ordersToday] = await pool.query('SELECT COUNT(*) as count, IFNULL(SUM(grand_total), 0) as revenue, COUNT(DISTINCT customer_id) as distinct_customers FROM orders WHERE order_date = ? AND status != "cancelled" AND status != "rejected"', [today]);
     const [visitsWithOrder] = await pool.query('SELECT COUNT(*) as count FROM visits WHERE visit_date = ? AND result_type = "order"', [today]);
@@ -3369,9 +3368,7 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
          )`,
       [today, today]
     );
-    // Active sales count
     const [activeSales] = await pool.query('SELECT COUNT(*) as count FROM users WHERE role = "sales" AND is_active = 1');
-    // Total customers
     const [totalCustomers] = await pool.query('SELECT COUNT(*) as count FROM customers WHERE is_active = 1');
 
     const totalVisits = (visitsToday[0].count || 0) + (unvisitedOrderCustomers[0].count || 0);
@@ -3400,14 +3397,12 @@ app.get('/api/reports/sales-performance', authenticateToken, async (req, res) =>
     const [rows] = await pool.query(
       `SELECT u.id as sales_id, u.name as sales_name, u.vehicle_type, u.vehicle_number,
               (SELECT COUNT(*) FROM visits v WHERE v.sales_id = u.id AND v.visit_date BETWEEN ? AND ?) as explicit_visits,
-              (SELECT COUNT(*) FROM (
-                SELECT DISTINCT o.customer_id, o.order_date
-                FROM orders o
-                WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM visits v WHERE v.sales_id = o.sales_id AND v.customer_id = o.customer_id AND v.visit_date = o.order_date
-                  )
-              ) ov) as unvisited_order_visits,
+              (SELECT COUNT(DISTINCT CONCAT(o.customer_id, '-', o.order_date))
+               FROM orders o
+               WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM visits v WHERE v.sales_id = o.sales_id AND v.customer_id = o.customer_id AND v.visit_date = o.order_date
+                 )) as unvisited_order_visits,
               (SELECT COUNT(*) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected') as total_orders,
               (SELECT COUNT(DISTINCT CONCAT(o.customer_id, '-', o.order_date)) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected') as distinct_order_visits,
               (SELECT IFNULL(SUM(o.grand_total), 0) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected') as total_revenue,
