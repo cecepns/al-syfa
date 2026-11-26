@@ -88,6 +88,9 @@ export const API_ENDPOINTS = {
     LIST: "/van-stocks",
     CURRENT: (salesId) => `/van-stocks/current/${salesId}`,
     ALLOCATE: "/van-stocks/allocate",
+    UPDATE: (id) => `/van-stocks/${id}`,
+    DELETE: (id) => `/van-stocks/${id}`,
+    DELETE_GROUP: (salesId, date) => `/van-stocks/group/${salesId}/${date}`,
     RETURN: "/van-stocks/return",
   },
 

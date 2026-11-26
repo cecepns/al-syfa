@@ -1805,6 +1805,7 @@ app.get('/api/van-stocks', authenticateToken, async (req, res) => {
     const search = req.query.search ? `%${req.query.search}%` : '%';
     const salesId = req.query.sales_id || null;
     const date = req.query.date || null;
+    const grouped = req.query.grouped === 'true';
 
     let whereClause = 'WHERE (p.name LIKE ? OR p.code LIKE ? OR u.name LIKE ?)';
     let params = [search, search, search];
@@ -1816,6 +1817,84 @@ app.get('/api/van-stocks', authenticateToken, async (req, res) => {
     if (date) {
       whereClause += ' AND vs.stock_date = ?';
       params.push(date);
+    }
+
+    if (grouped) {
+      const [groupCountRows] = await pool.query(
+        `SELECT COUNT(*) as total FROM (
+           SELECT vs.stock_date, vs.sales_id
+           FROM van_stocks vs
+           JOIN products p ON vs.product_id = p.id
+           JOIN users u ON vs.sales_id = u.id
+           ${whereClause}
+           GROUP BY vs.stock_date, vs.sales_id
+         ) g`,
+        params
+      );
+      const totalGroups = groupCountRows[0].total;
+
+      const [groupRows] = await pool.query(
+        `SELECT vs.stock_date, vs.sales_id, u.name as sales_name, u.vehicle_type, u.vehicle_number,
+                SUM(vs.initial_stock) as total_initial_stock,
+                SUM(vs.sold_stock) as total_sold_stock,
+                SUM(vs.current_stock) as total_current_stock,
+                COUNT(vs.id) as total_items
+         FROM van_stocks vs
+         JOIN products p ON vs.product_id = p.id
+         JOIN users u ON vs.sales_id = u.id
+         ${whereClause}
+         GROUP BY vs.stock_date, vs.sales_id, u.name, u.vehicle_type, u.vehicle_number
+         ORDER BY vs.stock_date DESC, MAX(vs.id) DESC
+         LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
+      );
+
+      let resultGroups = [];
+      if (groupRows.length > 0) {
+        const pairConditions = groupRows.map(() => '(vs.stock_date = ? AND vs.sales_id = ?)').join(' OR ');
+        const pairParams = [];
+        groupRows.forEach((g) => {
+          const dStr = typeof g.stock_date === 'string' ? g.stock_date.substring(0, 10) : g.stock_date;
+          pairParams.push(dStr, g.sales_id);
+        });
+
+        const [itemRows] = await pool.query(
+          `SELECT vs.*, p.name as product_name, p.code as product_code, p.unit, p.price, p.warehouse_stock
+           FROM van_stocks vs
+           JOIN products p ON vs.product_id = p.id
+           WHERE ${pairConditions}
+           ORDER BY vs.id ASC`,
+          pairParams
+        );
+
+        resultGroups = groupRows.map((g) => {
+          const gDate = typeof g.stock_date === 'string' ? g.stock_date.substring(0, 10) : String(g.stock_date).substring(0, 10);
+          const items = itemRows.filter((it) => {
+            const itDate = typeof it.stock_date === 'string' ? it.stock_date.substring(0, 10) : String(it.stock_date).substring(0, 10);
+            return itDate === gDate && Number(it.sales_id) === Number(g.sales_id);
+          });
+          return {
+            group_key: `${gDate}_${g.sales_id}`,
+            stock_date: gDate,
+            sales_id: g.sales_id,
+            sales_name: g.sales_name,
+            vehicle_type: g.vehicle_type,
+            vehicle_number: g.vehicle_number,
+            total_initial_stock: parseInt(g.total_initial_stock || 0),
+            total_sold_stock: parseInt(g.total_sold_stock || 0),
+            total_current_stock: parseInt(g.total_current_stock || 0),
+            total_items: parseInt(g.total_items || 0),
+            items
+          };
+        });
+      }
+
+      return successResponse(res, resultGroups, {
+        page,
+        limit,
+        total: totalGroups,
+        totalPages: Math.ceil(totalGroups / limit)
+      });
     }
 
     const [countResult] = await pool.query(
@@ -1870,56 +1949,268 @@ app.get('/api/van-stocks/current/:salesId', authenticateToken, async (req, res) 
   }
 });
 
-// POST /api/van-stocks/allocate (Gudang -> Kendaraan Sales)
+// POST /api/van-stocks/allocate (Gudang -> Kendaraan Sales: mendukung 1 item maupun multi-item sekaligus)
 app.post('/api/van-stocks/allocate', authenticateToken, async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const { sales_id, product_id, qty, date, notes } = req.body;
-    if (!sales_id || !product_id || !qty || qty <= 0) {
-      return errorResponse(res, 'Sales, produk, dan jumlah alokasi valid wajib diisi', 400);
-    }
-
+    const { sales_id, product_id, qty, items, date, notes } = req.body;
     const stockDate = date || new Date().toISOString().split('T')[0];
 
-    // Check warehouse stock
-    const [products] = await connection.query('SELECT warehouse_stock FROM products WHERE id = ?', [product_id]);
-    if (products.length === 0) {
-      return errorResponse(res, 'Produk tidak ditemukan', 404);
-    }
-    if (products[0].warehouse_stock < qty) {
-      return errorResponse(res, `Stok gudang tidak mencukupi (Tersedia: ${products[0].warehouse_stock})`, 400);
+    let rawItems = [];
+    if (Array.isArray(items) && items.length > 0) {
+      rawItems = items;
+    } else if (product_id && qty) {
+      rawItems = [{ product_id, qty }];
     }
 
-    // Reduce warehouse stock
-    await connection.query('UPDATE products SET warehouse_stock = warehouse_stock - ? WHERE id = ?', [qty, product_id]);
+    if (!sales_id || rawItems.length === 0) {
+      await connection.rollback();
+      return errorResponse(res, 'Sales dan minimal 1 item produk valid wajib diisi', 400);
+    }
 
-    // Upsert into van_stocks
-    const [existing] = await connection.query(
-      'SELECT id, initial_stock, current_stock FROM van_stocks WHERE sales_id = ? AND product_id = ? AND stock_date = ?',
-      [sales_id, product_id, stockDate]
+    // Gabungkan jika ada produk sama dalam 1 submit
+    const mergedMap = new Map();
+    for (const item of rawItems) {
+      const pid = parseInt(item.product_id);
+      const itemQty = parseInt(item.qty);
+      if (!pid || !itemQty || itemQty <= 0) {
+        await connection.rollback();
+        return errorResponse(res, 'Setiap item produk harus memiliki jumlah valid (> 0)', 400);
+      }
+      mergedMap.set(pid, (mergedMap.get(pid) || 0) + itemQty);
+    }
+
+    const allocatedResults = [];
+    for (const [pid, totalQty] of mergedMap.entries()) {
+      const [products] = await connection.query('SELECT id, name, warehouse_stock FROM products WHERE id = ?', [pid]);
+      if (products.length === 0) {
+        await connection.rollback();
+        return errorResponse(res, `Produk dengan ID ${pid} tidak ditemukan`, 404);
+      }
+      const prod = products[0];
+      if (prod.warehouse_stock < totalQty) {
+        await connection.rollback();
+        return errorResponse(res, `Stok gudang "${prod.name}" tidak mencukupi (Tersedia: ${prod.warehouse_stock}, Diminta: ${totalQty})`, 400);
+      }
+
+      // Reduce warehouse stock
+      await connection.query('UPDATE products SET warehouse_stock = warehouse_stock - ? WHERE id = ?', [totalQty, pid]);
+
+      // Upsert into van_stocks
+      const [existing] = await connection.query(
+        'SELECT id, initial_stock, current_stock FROM van_stocks WHERE sales_id = ? AND product_id = ? AND stock_date = ?',
+        [sales_id, pid, stockDate]
+      );
+
+      if (existing.length > 0) {
+        await connection.query(
+          'UPDATE van_stocks SET initial_stock = initial_stock + ?, current_stock = current_stock + ? WHERE id = ?',
+          [totalQty, totalQty, existing[0].id]
+        );
+      } else {
+        await connection.query(
+          'INSERT INTO van_stocks (sales_id, product_id, initial_stock, sold_stock, current_stock, stock_date) VALUES (?, ?, ?, 0, ?, ?)',
+          [sales_id, pid, totalQty, totalQty, stockDate]
+        );
+      }
+
+      // Log van stock transaction
+      await connection.query(
+        'INSERT INTO van_stock_logs (sales_id, product_id, type, qty, notes) VALUES (?, ?, "in_allocation", ?, ?)',
+        [sales_id, pid, totalQty, notes || 'Alokasi stok awal dari gudang']
+      );
+
+      allocatedResults.push({ product_id: pid, product_name: prod.name, qty: totalQty });
+    }
+
+    await connection.commit();
+    return successResponse(
+      res,
+      { sales_id: parseInt(sales_id), stock_date: stockDate, items: allocatedResults },
+      null,
+      `${allocatedResults.length} item produk berhasil dialokasikan ke kendaraan sales`
+    );
+  } catch (err) {
+    await connection.rollback();
+    return errorResponse(res, err.message, 500);
+  } finally {
+    connection.release();
+  }
+});
+
+// PUT /api/van-stocks/:id (Edit kesalahan data alokasi stok kendaraan & sesuaikan stok gudang)
+app.put('/api/van-stocks/:id', authenticateToken, async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { id } = req.params;
+    const { sales_id, product_id, initial_stock, qty, stock_date, date, notes } = req.body;
+
+    const [existingRows] = await connection.query('SELECT * FROM van_stocks WHERE id = ?', [id]);
+    if (existingRows.length === 0) {
+      await connection.rollback();
+      return errorResponse(res, 'Data stok kendaraan tidak ditemukan', 404);
+    }
+    const existing = existingRows[0];
+    const oldDate = typeof existing.stock_date === 'string' ? existing.stock_date.substring(0, 10) : String(existing.stock_date).substring(0, 10);
+
+    const newSalesId = sales_id ? parseInt(sales_id) : existing.sales_id;
+    const newProductId = product_id ? parseInt(product_id) : existing.product_id;
+    const newDate = stock_date || date || oldDate;
+    const newInitial = initial_stock !== undefined ? parseInt(initial_stock) : (qty !== undefined ? parseInt(qty) : existing.initial_stock);
+
+    if (isNaN(newInitial) || newInitial < 0) {
+      await connection.rollback();
+      return errorResponse(res, 'Jumlah stok awal tidak valid', 400);
+    }
+    if (newInitial < existing.sold_stock) {
+      await connection.rollback();
+      return errorResponse(res, `Stok awal (${newInitial}) tidak boleh kurang dari jumlah yang sudah terjual (${existing.sold_stock})`, 400);
+    }
+    if (newProductId !== existing.product_id && existing.sold_stock > 0) {
+      await connection.rollback();
+      return errorResponse(res, 'Produk tidak dapat diganti karena sudah ada transaksi penjualan untuk item ini', 400);
+    }
+
+    // Cek bentrok unique_sales_product_date dengan baris lain
+    const [collision] = await connection.query(
+      'SELECT id FROM van_stocks WHERE sales_id = ? AND product_id = ? AND stock_date = ? AND id != ?',
+      [newSalesId, newProductId, newDate, id]
+    );
+    if (collision.length > 0) {
+      await connection.rollback();
+      return errorResponse(res, 'Kombinasi sales, produk, dan tanggal tersebut sudah ada. Silakan edit baris terkait.', 400);
+    }
+
+    // Reconcile warehouse stock
+    if (newProductId === existing.product_id) {
+      const delta = newInitial - existing.initial_stock;
+      if (delta > 0) {
+        const [prodRows] = await connection.query('SELECT name, warehouse_stock FROM products WHERE id = ?', [newProductId]);
+        if (prodRows.length === 0 || prodRows[0].warehouse_stock < delta) {
+          await connection.rollback();
+          return errorResponse(res, `Stok gudang "${prodRows[0]?.name || ''}" tidak mencukupi untuk penambahan +${delta}`, 400);
+        }
+        await connection.query('UPDATE products SET warehouse_stock = warehouse_stock - ? WHERE id = ?', [delta, newProductId]);
+      } else if (delta < 0) {
+        await connection.query('UPDATE products SET warehouse_stock = warehouse_stock + ? WHERE id = ?', [Math.abs(delta), newProductId]);
+      }
+    } else {
+      // Restore full old initial_stock to old product
+      await connection.query('UPDATE products SET warehouse_stock = warehouse_stock + ? WHERE id = ?', [existing.initial_stock, existing.product_id]);
+      const [newProdRows] = await connection.query('SELECT name, warehouse_stock FROM products WHERE id = ?', [newProductId]);
+      if (newProdRows.length === 0 || newProdRows[0].warehouse_stock < newInitial) {
+        await connection.rollback();
+        return errorResponse(res, `Stok gudang "${newProdRows[0]?.name || ''}" tidak mencukupi (Tersedia: ${newProdRows[0]?.warehouse_stock || 0})`, 400);
+      }
+      await connection.query('UPDATE products SET warehouse_stock = warehouse_stock - ? WHERE id = ?', [newInitial, newProductId]);
+    }
+
+    const newCurrentStock = Math.max(0, newInitial - existing.sold_stock);
+    await connection.query(
+      `UPDATE van_stocks SET sales_id = ?, product_id = ?, initial_stock = ?, current_stock = ?, stock_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [newSalesId, newProductId, newInitial, newCurrentStock, newDate, id]
     );
 
-    if (existing.length > 0) {
-      await connection.query(
-        'UPDATE van_stocks SET initial_stock = initial_stock + ?, current_stock = current_stock + ? WHERE id = ?',
-        [qty, qty, existing[0].id]
-      );
-    } else {
-      await connection.query(
-        'INSERT INTO van_stocks (sales_id, product_id, initial_stock, sold_stock, current_stock, stock_date) VALUES (?, ?, ?, 0, ?, ?)',
-        [sales_id, product_id, qty, qty, stockDate]
-      );
-    }
-
-    // Log van stock transaction
     await connection.query(
-      'INSERT INTO van_stock_logs (sales_id, product_id, type, qty, notes) VALUES (?, ?, "in_allocation", ?, ?)',
-      [sales_id, product_id, qty, notes || 'Alokasi stok awal dari gudang']
+      'INSERT INTO van_stock_logs (sales_id, product_id, type, qty, notes) VALUES (?, ?, "adjustment", ?, ?)',
+      [newSalesId, newProductId, newInitial - existing.initial_stock, notes || `Koreksi stok kendaraan (${existing.initial_stock} -> ${newInitial}) oleh ${req.user.name}`]
     );
 
     await connection.commit();
-    return successResponse(res, null, null, 'Stok berhasil dialokasikan ke kendaraan sales');
+    return successResponse(
+      res,
+      { id: parseInt(id), initial_stock: newInitial, current_stock: newCurrentStock, stock_date: newDate },
+      null,
+      'Data stok kendaraan berhasil diperbarui & stok gudang disesuaikan'
+    );
+  } catch (err) {
+    await connection.rollback();
+    return errorResponse(res, err.message, 500);
+  } finally {
+    connection.release();
+  }
+});
+
+// DELETE /api/van-stocks/group/:salesId/:date (Hapus semua item stok 1 sales di tanggal tertentu & kembalikan ke gudang)
+app.delete('/api/van-stocks/group/:salesId/:date', authenticateToken, async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { salesId, date } = req.params;
+
+    const [rows] = await connection.query(
+      `SELECT vs.*, p.name as product_name
+       FROM van_stocks vs
+       JOIN products p ON vs.product_id = p.id
+       WHERE vs.sales_id = ? AND vs.stock_date = ?`,
+      [salesId, date]
+    );
+    if (rows.length === 0) {
+      await connection.rollback();
+      return errorResponse(res, 'Data alokasi stok untuk sales dan tanggal tersebut tidak ditemukan', 404);
+    }
+
+    const soldRow = rows.find((r) => Number(r.sold_stock) > 0);
+    if (soldRow) {
+      await connection.rollback();
+      return errorResponse(res, `Tidak dapat menghapus grup stok karena produk "${soldRow.product_name}" sudah memiliki transaksi terjual (${soldRow.sold_stock} unit). Hapus/edit per item yang belum terjual saja.`, 400);
+    }
+
+    for (const r of rows) {
+      const returnQty = Math.max(0, parseInt(r.current_stock || 0));
+      if (returnQty > 0) {
+        await connection.query('UPDATE products SET warehouse_stock = warehouse_stock + ? WHERE id = ?', [returnQty, r.product_id]);
+        await connection.query(
+          'INSERT INTO van_stock_logs (sales_id, product_id, type, qty, notes) VALUES (?, ?, "return_warehouse", ?, ?)',
+          [salesId, r.product_id, returnQty, `Hapus alokasi grup stok tanggal ${date} oleh ${req.user.name}`]
+        );
+      }
+    }
+
+    await connection.query('DELETE FROM van_stocks WHERE sales_id = ? AND stock_date = ?', [salesId, date]);
+    await connection.commit();
+    return successResponse(res, { sales_id: parseInt(salesId), stock_date: date, deleted_count: rows.length }, null, `${rows.length} item stok berhasil dihapus & dikembalikan ke gudang`);
+  } catch (err) {
+    await connection.rollback();
+    return errorResponse(res, err.message, 500);
+  } finally {
+    connection.release();
+  }
+});
+
+// DELETE /api/van-stocks/:id (Hapus 1 item kesalahan alokasi stok & kembalikan ke gudang)
+app.delete('/api/van-stocks/:id', authenticateToken, async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { id } = req.params;
+
+    const [rows] = await connection.query('SELECT * FROM van_stocks WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      await connection.rollback();
+      return errorResponse(res, 'Data stok kendaraan tidak ditemukan', 404);
+    }
+    const existing = rows[0];
+
+    if (Number(existing.sold_stock) > 0) {
+      await connection.rollback();
+      return errorResponse(res, `Data tidak dapat dihapus karena sudah ada ${existing.sold_stock} unit terjual. Silakan gunakan tombol Edit untuk menyesuaikan stok.`, 400);
+    }
+
+    const restoreQty = Math.max(0, parseInt(existing.current_stock || 0));
+    if (restoreQty > 0) {
+      await connection.query('UPDATE products SET warehouse_stock = warehouse_stock + ? WHERE id = ?', [restoreQty, existing.product_id]);
+      await connection.query(
+        'INSERT INTO van_stock_logs (sales_id, product_id, type, qty, notes) VALUES (?, ?, "return_warehouse", ?, ?)',
+        [existing.sales_id, existing.product_id, restoreQty, `Hapus kesalahan data stok kendaraan oleh ${req.user.name}`]
+      );
+    }
+
+    await connection.query('DELETE FROM van_stocks WHERE id = ?', [id]);
+    await connection.commit();
+    return successResponse(res, { id: parseInt(id), restored_to_warehouse: restoreQty }, null, 'Data stok berhasil dihapus & dikembalikan ke gudang');
   } catch (err) {
     await connection.rollback();
     return errorResponse(res, err.message, 500);
