@@ -56,7 +56,7 @@ export default function OrderCapture() {
   const fetchInitialData = async () => {
     try {
       const [custRes, prodRes, promoRes, stockRes] = await Promise.all([
-        request.get(API_ENDPOINTS.CUSTOMERS.LIST, { limit: 100 }),
+        request.get(API_ENDPOINTS.CUSTOMERS.LIST, { sales_id: user.id || undefined, limit: 100 }),
         request.get(API_ENDPOINTS.PRODUCTS.LIST, { limit: 100 }),
         request.get(API_ENDPOINTS.PROMOTIONS.LIST, { active_only: 'true' }),
         request.get(API_ENDPOINTS.VAN_STOCKS.CURRENT(user.id)).catch(() => ({ data: [] }))
@@ -80,6 +80,7 @@ export default function OrderCapture() {
   const loadCustomerOptions = async (inputValue) => {
     try {
       const res = await request.get(API_ENDPOINTS.CUSTOMERS.LIST, {
+        sales_id: user.id || undefined,
         search: inputValue || '',
         limit: 25,
       });

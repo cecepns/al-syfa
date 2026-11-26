@@ -37,6 +37,7 @@ import { formatDateID, formatMonthYearID, getTodayISO, getCurrentMonthISO } from
 const STORE_LABEL_PRESETS = ['Toko Baru', 'Outlet Baru', 'Potensial', 'Langganan', 'Prioritas'];
 
 export default function CustomerList() {
+  const user = JSON.parse(localStorage.getItem('alsyifa_user') || '{}');
   const [customers, setCustomers] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -160,6 +161,7 @@ export default function CustomerList() {
         page,
         limit,
         search,
+        sales_id: user.id || undefined,
         shop_type: shopType || undefined,
         is_active: statusFilter !== 'all' ? statusFilter : undefined,
         store_label: labelFilter || undefined,

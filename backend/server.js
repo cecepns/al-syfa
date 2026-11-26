@@ -773,6 +773,15 @@ app.delete('/api/users/:id', authenticateToken, async (req, res) => {
 // ========================================================
 // 4. CUSTOMERS / OUTLETS (Toko) MANAGEMENT
 // ========================================================
+function canSalesAccessCustomer(reqUser, customer) {
+  if (!reqUser || reqUser.role !== 'sales') return true;
+  if (!customer) return false;
+  return (
+    Number(customer.sales_id) === Number(reqUser.id) ||
+    (!customer.sales_id && Number(customer.created_by) === Number(reqUser.id))
+  );
+}
+
 app.get('/api/customers', authenticateToken, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -789,12 +798,16 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
     let params = [search, search, search, search, search, search, search];
 
     const salesId = req.query.sales_id || null;
-    if (salesId && salesId !== 'all') {
+    if (req.user.role === 'sales') {
+      // Setiap akun sales hanya melihat database toko miliknya sendiri
+      whereClause += ' AND (c.sales_id = ? OR (c.sales_id IS NULL AND c.created_by = ?))';
+      params.push(req.user.id, req.user.id);
+    } else if (salesId && salesId !== 'all') {
       if (salesId === 'unassigned') {
         whereClause += ' AND c.sales_id IS NULL';
       } else {
-        whereClause += ' AND c.sales_id = ?';
-        params.push(salesId);
+        whereClause += ' AND (c.sales_id = ? OR (c.sales_id IS NULL AND c.created_by = ?))';
+        params.push(salesId, salesId);
       }
     }
 
@@ -991,6 +1004,9 @@ app.get('/api/customers/:id', authenticateToken, async (req, res) => {
     }
 
     const customer = rows[0];
+    if (!canSalesAccessCustomer(req.user, customer)) {
+      return errorResponse(res, 'Akses ditolak: Toko ini terdaftar pada sales lain', 403);
+    }
 
     // Fetch customer's recent orders
     const [orders] = await pool.query(
@@ -1036,7 +1052,7 @@ app.post('/api/customers', authenticateToken, async (req, res) => {
     const code = `CST-${String(maxRow[0].maxId + 1).padStart(3, '0')}`;
 
     const savedImage = saveBase64Image(image, 'customer');
-    const assignedSalesId = sales_id || (req.user.role === 'sales' ? req.user.id : null);
+    const assignedSalesId = req.user.role === 'sales' ? req.user.id : (sales_id || null);
     const activeStatus = is_active !== undefined ? (is_active ? 1 : 0) : 1;
 
     const [result] = await pool.query(
@@ -1081,6 +1097,9 @@ app.put('/api/customers/:id', authenticateToken, async (req, res) => {
       return errorResponse(res, 'Data toko tidak ditemukan', 404);
     }
     const existing = existingRows[0];
+    if (!canSalesAccessCustomer(req.user, existing)) {
+      return errorResponse(res, 'Akses ditolak: Anda tidak dapat mengubah toko milik sales lain', 403);
+    }
 
     const {
       name, owner_name, shop_type, store_label, phone, address,
@@ -1118,7 +1137,7 @@ app.put('/api/customers/:id', authenticateToken, async (req, res) => {
       credit_limit !== undefined ? credit_limit : existing.credit_limit,
       notes !== undefined ? notes : existing.notes,
       is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
-      sales_id !== undefined ? (sales_id || null) : existing.sales_id
+      req.user.role === 'sales' ? (existing.sales_id || req.user.id) : (sales_id !== undefined ? (sales_id || null) : existing.sales_id)
     ];
 
     if (savedImage) {
@@ -1163,6 +1182,10 @@ app.put('/api/customers/:id/settle-balance', authenticateToken, async (req, res)
       return errorResponse(res, 'Data toko tidak ditemukan', 404);
     }
     const customer = custRows[0];
+    if (!canSalesAccessCustomer(req.user, customer)) {
+      await connection.rollback();
+      return errorResponse(res, 'Akses ditolak: Toko ini terdaftar pada sales lain', 403);
+    }
 
     // 1. Cari semua order yang belum lunas milik toko ini
     const [unpaidOrders] = await connection.query(
@@ -1235,6 +1258,13 @@ app.put('/api/customers/:id/status', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { is_active } = req.body;
+    const [existingRows] = await pool.query('SELECT id, sales_id, created_by FROM customers WHERE id = ?', [id]);
+    if (existingRows.length === 0) {
+      return errorResponse(res, 'Data toko tidak ditemukan', 404);
+    }
+    if (!canSalesAccessCustomer(req.user, existingRows[0])) {
+      return errorResponse(res, 'Akses ditolak: Toko ini terdaftar pada sales lain', 403);
+    }
     const nextStatus = is_active ? 1 : 0;
     await pool.query('UPDATE customers SET is_active = ? WHERE id = ?', [nextStatus, id]);
     return successResponse(
@@ -1253,6 +1283,13 @@ app.put('/api/customers/:id/status', authenticateToken, async (req, res) => {
 app.get('/api/customers/:id/purchase-history', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const [custRows] = await pool.query('SELECT id, sales_id, created_by FROM customers WHERE id = ?', [id]);
+    if (custRows.length === 0) {
+      return errorResponse(res, 'Data toko tidak ditemukan', 404);
+    }
+    if (!canSalesAccessCustomer(req.user, custRows[0])) {
+      return errorResponse(res, 'Akses ditolak: Toko ini terdaftar pada sales lain', 403);
+    }
     const [rows] = await pool.query(
       `SELECT o.id as order_id, o.invoice_number, o.order_date, o.grand_total,
               o.payment_method, o.payment_status, o.status as order_status,
@@ -1310,6 +1347,13 @@ app.get('/api/customers/:id/purchase-history', authenticateToken, async (req, re
 app.delete('/api/customers/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const [existingRows] = await pool.query('SELECT id, sales_id, created_by FROM customers WHERE id = ?', [id]);
+    if (existingRows.length === 0) {
+      return errorResponse(res, 'Data toko tidak ditemukan', 404);
+    }
+    if (!canSalesAccessCustomer(req.user, existingRows[0])) {
+      return errorResponse(res, 'Akses ditolak: Anda tidak dapat menghapus toko milik sales lain', 403);
+    }
     await pool.query('DELETE FROM customers WHERE id = ?', [id]);
     return successResponse(res, { id }, null, 'Data toko berhasil dihapus');
   } catch (err) {
