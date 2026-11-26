@@ -114,8 +114,53 @@ async function ensureSchemaUpgrades() {
     if (custLabelCols.length === 0) {
       await pool.query("ALTER TABLE customers ADD COLUMN store_label VARCHAR(50) NULL DEFAULT NULL AFTER shop_type");
     }
+    const [branchSourceCols] = await pool.query("SHOW COLUMNS FROM branch_cities LIKE 'source'");
+    if (branchSourceCols.length === 0) {
+      await pool.query("ALTER TABLE branch_cities ADD COLUMN source VARCHAR(50) NULL DEFAULT 'owner' AFTER notes");
+    }
   } catch (err) {
     console.warn('Schema auto-upgrade notice:', err.message);
+  }
+}
+
+// Helper: Auto-sync kota/kabupaten baru ke branch_cities agar terhubung ke Owner
+async function syncBranchCityIfNew(connOrPool, { cityName, provinceName = 'Jawa Timur', regencyCode = null, userId = null, source = 'admin' }) {
+  const cleanCity = (cityName || '').trim();
+  if (!cleanCity || cleanCity.toLowerCase() === 'lainnya') {
+    return { isNew: false };
+  }
+  const cleanProv = (provinceName || 'Jawa Timur').trim();
+  try {
+    const [existing] = await connOrPool.query(
+      'SELECT id, city_name FROM branch_cities WHERE LOWER(city_name) = LOWER(?) LIMIT 1',
+      [cleanCity]
+    );
+    if (existing.length > 0) {
+      return { isNew: false, branch: existing[0] };
+    }
+    const noteText = source === 'admin'
+      ? 'Pembukaan kota baru dari menu Admin'
+      : source === 'sales'
+        ? 'Pembukaan kota baru dari transaksi/toko Sales'
+        : 'Ditambahkan dari panel';
+    const [ins] = await connOrPool.query(
+      `INSERT INTO branch_cities (city_name, province_name, regency_code, is_active, notes, created_by, source)
+       VALUES (?, ?, ?, 1, ?, ?, ?)`,
+      [cleanCity, cleanProv, regencyCode || null, noteText, userId || null, source || 'admin']
+    );
+    return {
+      isNew: true,
+      branch: {
+        id: ins.insertId,
+        city_name: cleanCity,
+        province_name: cleanProv,
+        regency_code: regencyCode || null,
+        source: source || 'admin'
+      }
+    };
+  } catch (err) {
+    console.warn('syncBranchCityIfNew notice:', err.message);
+    return { isNew: false };
   }
 }
 
@@ -130,7 +175,7 @@ pool.getConnection()
   });
 
 // Response Helpers (strictly adhering to AGENTS.md)
-function successResponse(res, data, pagination = null, message = 'Success') {
+function successResponse(res, data, pagination = null, message = 'Success', extra = null) {
   const resp = {
     success: true,
     message,
@@ -138,6 +183,13 @@ function successResponse(res, data, pagination = null, message = 'Success') {
   };
   if (pagination) {
     resp.pagination = pagination;
+  }
+  if (extra && typeof extra === 'object') {
+    if (extra.summary !== undefined || extra.groups_summary !== undefined || extra.meta !== undefined) {
+      Object.assign(resp, extra);
+    } else {
+      resp.summary = extra;
+    }
   }
   return res.json(resp);
 }
@@ -773,7 +825,9 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
     const total = countResult[0].total;
 
     const [rows] = await pool.query(
-      `SELECT c.*, u.name as created_by_name, u_sales.name as sales_name
+      `SELECT c.*, u.name as created_by_name, COALESCE(u_sales.name, u.name) as sales_name,
+              (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.status != 'cancelled' AND o.status != 'rejected') as total_orders,
+              (SELECT DATE_FORMAT(MAX(o.order_date), '%Y-%m-%d') FROM orders o WHERE o.customer_id = c.id AND o.status != 'cancelled' AND o.status != 'rejected') as last_order_date
        FROM customers c
        LEFT JOIN users u ON c.created_by = u.id
        LEFT JOIN users u_sales ON c.sales_id = u_sales.id
@@ -788,6 +842,139 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
       total,
       totalPages: Math.ceil(total / limit)
     });
+  } catch (err) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
+// GET /api/customers/transacted (Toko yang sudah melakukan order, dikelompokkan Tanggal / Bulan / Tahun untuk Follow Up)
+app.get('/api/customers/transacted', authenticateToken, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 25;
+    const offset = (page - 1) * limit;
+    const search = req.query.search ? `%${req.query.search}%` : '%';
+    const filterMode = req.query.filter_mode || 'followup'; // 'day' | 'month' | 'year' | 'followup' | 'all'
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+    const month = req.query.month || new Date().toISOString().substring(0, 7);
+    const year = req.query.year || String(new Date().getFullYear());
+    const salesId = req.query.sales_id || null;
+    const scope = req.query.scope || null;
+
+    let whereClause = `WHERE o.status != 'cancelled' AND o.status != 'rejected'
+      AND (c.name LIKE ? OR c.code LIKE ? OR c.owner_name LIKE ? OR c.address LIKE ? OR IFNULL(c.store_label, '') LIKE ? OR IFNULL(u_sales.name, '') LIKE ?)`;
+    let params = [search, search, search, search, search, search];
+
+    if (req.user.role === 'sales' && scope !== 'all') {
+      whereClause += ' AND o.sales_id = ?';
+      params.push(req.user.id);
+    } else if (salesId && salesId !== 'all') {
+      whereClause += ' AND o.sales_id = ?';
+      params.push(salesId);
+    }
+
+    // Build group summary query base (before specific day/month filter or respecting year/month context)
+    let summaryWhere = `WHERE o.status != 'cancelled' AND o.status != 'rejected'`;
+    const summaryParams = [];
+    if (req.user.role === 'sales' && scope !== 'all') {
+      summaryWhere += ' AND o.sales_id = ?';
+      summaryParams.push(req.user.id);
+    } else if (salesId && salesId !== 'all') {
+      summaryWhere += ' AND o.sales_id = ?';
+      summaryParams.push(salesId);
+    }
+
+    if (filterMode === 'day' && date) {
+      whereClause += ' AND DATE(o.order_date) = ?';
+      params.push(date);
+    } else if (filterMode === 'month' && month) {
+      whereClause += ' AND DATE_FORMAT(o.order_date, "%Y-%m") = ?';
+      params.push(month);
+    } else if (filterMode === 'year' && year) {
+      whereClause += ' AND YEAR(o.order_date) = ?';
+      params.push(year);
+    } else if (filterMode === 'followup') {
+      // Follow up 7 hari terakhir / 1 minggu ke depan
+      whereClause += ' AND DATE(o.order_date) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)';
+    }
+
+    const [countRows] = await pool.query(
+      `SELECT COUNT(*) as total FROM (
+        SELECT DATE_FORMAT(o.order_date, '%Y-%m-%d') as trans_date, c.id
+        FROM orders o
+        JOIN customers c ON o.customer_id = c.id
+        LEFT JOIN users u_sales ON o.sales_id = u_sales.id
+        ${whereClause}
+        GROUP BY DATE_FORMAT(o.order_date, '%Y-%m-%d'), c.id
+      ) t`,
+      params
+    );
+    const total = countRows[0].total;
+
+    const [rows] = await pool.query(
+      `SELECT
+        DATE_FORMAT(o.order_date, '%Y-%m-%d') as trans_date,
+        c.id as customer_id,
+        c.code as customer_code,
+        c.name as customer_name,
+        c.owner_name,
+        c.shop_type,
+        c.store_label,
+        c.phone,
+        c.address,
+        c.regency_name,
+        c.district_name,
+        c.village_name,
+        c.current_balance,
+        c.is_active,
+        c.notes,
+        c.latitude,
+        c.longitude,
+        c.sales_id as customer_sales_id,
+        COUNT(o.id) as order_count,
+        IFNULL(SUM(o.grand_total), 0) as total_amount,
+        IFNULL(SUM(o.paid_amount), 0) as total_paid,
+        IFNULL(SUM(GREATEST(0, o.grand_total - o.paid_amount)), 0) as unpaid_amount,
+        GROUP_CONCAT(o.invoice_number ORDER BY o.id DESC SEPARATOR ', ') as invoice_numbers,
+        MAX(u_sales.name) as sales_name
+       FROM orders o
+       JOIN customers c ON o.customer_id = c.id
+       LEFT JOIN users u_sales ON o.sales_id = u_sales.id
+       ${whereClause}
+       GROUP BY DATE_FORMAT(o.order_date, '%Y-%m-%d'), c.id, c.code, c.name, c.owner_name, c.shop_type,
+                c.store_label, c.phone, c.address, c.regency_name, c.district_name, c.village_name,
+                c.current_balance, c.is_active, c.notes, c.latitude, c.longitude, c.sales_id
+       ORDER BY trans_date DESC, MAX(o.id) DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    const [groupsSummary] = await pool.query(
+      `SELECT
+        DATE_FORMAT(o.order_date, '%Y-%m-%d') as trans_date,
+        COUNT(DISTINCT o.customer_id) as store_count,
+        COUNT(o.id) as order_count,
+        IFNULL(SUM(o.grand_total), 0) as total_amount
+       FROM orders o
+       ${summaryWhere}
+       GROUP BY DATE_FORMAT(o.order_date, '%Y-%m-%d')
+       ORDER BY trans_date DESC
+       LIMIT 30`,
+      summaryParams
+    );
+
+    return successResponse(
+      res,
+      rows,
+      {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      },
+      'Data toko transaksi berhasil dimuat',
+      { groups_summary: groupsSummary }
+    );
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -870,7 +1057,15 @@ app.post('/api/customers', authenticateToken, async (req, res) => {
       ]
     );
 
-    return successResponse(res, { id: result.insertId, code, name }, null, 'Data toko pelanggan berhasil disimpan');
+    const syncRes = await syncBranchCityIfNew(pool, {
+      cityName: regency_name || 'Kota Surabaya',
+      provinceName: province_name || 'Jawa Timur',
+      regencyCode: regency_code || null,
+      userId: req.user.id,
+      source: req.user.role
+    });
+
+    return successResponse(res, { id: result.insertId, code, name, new_branch_city: syncRes.isNew ? syncRes.branch : null }, null, 'Data toko pelanggan berhasil disimpan');
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -934,9 +1129,103 @@ app.put('/api/customers/:id', authenticateToken, async (req, res) => {
     params.push(id);
 
     await pool.query(query, params);
+
+    const effectiveCity = regency_name !== undefined ? regency_name : existing.regency_name;
+    const effectiveProv = province_name !== undefined ? province_name : existing.province_name;
+    const effectiveRegCode = regency_code !== undefined ? regency_code : existing.regency_code;
+    await syncBranchCityIfNew(pool, {
+      cityName: effectiveCity,
+      provinceName: effectiveProv,
+      regencyCode: effectiveRegCode,
+      userId: req.user.id,
+      source: req.user.role
+    });
+
     return successResponse(res, { id }, null, 'Data toko berhasil diperbarui');
   } catch (err) {
     return errorResponse(res, err.message, 500);
+  }
+});
+
+// PUT /api/customers/:id/settle-balance (Lunasi semua piutang toko menjadi Rp 0)
+app.put('/api/customers/:id/settle-balance', authenticateToken, async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { id } = req.params;
+    const { payment_method, notes } = req.body || {};
+    const method = payment_method || 'tunai';
+
+    const [custRows] = await connection.query('SELECT * FROM customers WHERE id = ?', [id]);
+    if (custRows.length === 0) {
+      await connection.rollback();
+      return errorResponse(res, 'Data toko tidak ditemukan', 404);
+    }
+    const customer = custRows[0];
+
+    // 1. Cari semua order yang belum lunas milik toko ini
+    const [unpaidOrders] = await connection.query(
+      `SELECT id, invoice_number, grand_total, paid_amount, payment_status
+       FROM orders
+       WHERE customer_id = ? AND payment_status != 'lunas' AND status != 'cancelled' AND status != 'rejected'`,
+      [id]
+    );
+
+    const paymentDate = new Date().toISOString().split('T')[0];
+    let settledOrdersTotal = 0;
+
+    for (const ord of unpaidOrders) {
+      const grandTotal = parseFloat(ord.grand_total || 0);
+      const alreadyPaid = parseFloat(ord.paid_amount || 0);
+      const remaining = Math.max(0, grandTotal - alreadyPaid);
+      settledOrdersTotal += remaining;
+
+      await connection.query(
+        `UPDATE orders SET payment_status = 'lunas', paid_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [grandTotal, ord.id]
+      );
+
+      if (remaining > 0) {
+        const payNumber = `PAY-${Date.now()}-${ord.id}`;
+        await connection.query(
+          `INSERT INTO payments (
+            payment_number, order_id, sales_id, customer_id, payment_date,
+            amount, payment_method, notes, received_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            payNumber, ord.id, req.user.id, id, paymentDate, remaining, method,
+            notes || `Pelunasan piutang ${ord.invoice_number} toko ${customer.name} oleh ${req.user.name}`,
+            req.user.id
+          ]
+        );
+      }
+    }
+
+    // 2. Pastikan current_balance toko menjadi 0 (Lunas)
+    const previousBalance = parseFloat(customer.current_balance || 0);
+    await connection.query(
+      'UPDATE customers SET current_balance = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [id]
+    );
+
+    await connection.commit();
+    return successResponse(
+      res,
+      {
+        id: parseInt(id),
+        previous_balance: previousBalance,
+        current_balance: 0,
+        settled_orders_count: unpaidOrders.length,
+        settled_orders_amount: settledOrdersTotal
+      },
+      null,
+      `Piutang toko ${customer.name} berhasil dilunasi!`
+    );
+  } catch (err) {
+    await connection.rollback();
+    return errorResponse(res, err.message, 500);
+  } finally {
+    connection.release();
   }
 });
 
@@ -1040,8 +1329,8 @@ app.get('/api/routes', authenticateToken, async (req, res) => {
     const salesId = req.query.sales_id || null;
     const dayOfWeek = req.query.day_of_week || null;
 
-    let whereClause = 'WHERE (r.district_name LIKE ? OR r.village_names LIKE ? OR u.name LIKE ?)';
-    let params = [search, search, search];
+    let whereClause = 'WHERE (r.district_name LIKE ? OR r.village_names LIKE ? OR u.name LIKE ? OR IFNULL(r.regency_name, "") LIKE ? OR IFNULL(r.province_name, "") LIKE ?)';
+    let params = [search, search, search, search, search];
 
     if (salesId) {
       whereClause += ' AND r.sales_id = ?';
@@ -1163,12 +1452,13 @@ app.post('/api/routes', authenticateToken, async (req, res) => {
   try {
     await connection.beginTransaction();
     const {
-      sales_id, day_of_week, province_name, regency_name,
+      sales_id, day_of_week, province_name, regency_name, regency_code,
       district_code, district_name, village_codes, village_names,
       notes, customer_ids
     } = req.body;
 
     if (!sales_id || !day_of_week || !district_name) {
+      await connection.rollback();
       return errorResponse(res, 'Sales, hari rute, dan nama kecamatan wajib diisi', 400);
     }
 
@@ -1181,8 +1471,8 @@ app.post('/api/routes', authenticateToken, async (req, res) => {
         district_code, district_name, village_codes, village_names, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        sales_id, day_of_week.toLowerCase(), province_name || 'Jawa Barat',
-        regency_name || 'Kabupaten Bogor', district_code || null, district_name,
+        sales_id, day_of_week.toLowerCase(), province_name || 'Jawa Timur',
+        regency_name || 'Kota Surabaya', district_code || null, district_name,
         vCodesStr, vNamesStr, notes || null
       ]
     );
@@ -1198,8 +1488,23 @@ app.post('/api/routes', authenticateToken, async (req, res) => {
       }
     }
 
+    const syncRes = await syncBranchCityIfNew(connection, {
+      cityName: regency_name || 'Kota Surabaya',
+      provinceName: province_name || 'Jawa Timur',
+      regencyCode: regency_code || (district_code ? String(district_code).split('.').slice(0, 2).join('.') : null),
+      userId: req.user.id,
+      source: req.user.role
+    });
+
     await connection.commit();
-    return successResponse(res, { id: routeId }, null, 'Jadwal rute wilayah berhasil dibuat');
+    return successResponse(
+      res,
+      { id: routeId, new_branch_city: syncRes.isNew ? syncRes.branch : null },
+      null,
+      syncRes.isNew
+        ? `Jadwal rute dibuat & kota baru "${syncRes.branch.city_name}" terhubung ke Owner!`
+        : 'Jadwal rute wilayah berhasil dibuat'
+    );
   } catch (err) {
     await connection.rollback();
     return errorResponse(res, err.message, 500);
@@ -1215,7 +1520,7 @@ app.put('/api/routes/:id', authenticateToken, async (req, res) => {
     await connection.beginTransaction();
     const { id } = req.params;
     const {
-      sales_id, day_of_week, province_name, regency_name,
+      sales_id, day_of_week, province_name, regency_name, regency_code,
       district_code, district_name, village_codes, village_names,
       notes, is_active, customer_ids
     } = req.body;
@@ -1246,8 +1551,23 @@ app.put('/api/routes/:id', authenticateToken, async (req, res) => {
       }
     }
 
+    const syncRes = await syncBranchCityIfNew(connection, {
+      cityName: regency_name,
+      provinceName: province_name,
+      regencyCode: regency_code || (district_code ? String(district_code).split('.').slice(0, 2).join('.') : null),
+      userId: req.user.id,
+      source: req.user.role
+    });
+
     await connection.commit();
-    return successResponse(res, { id }, null, 'Rute wilayah berhasil diperbarui');
+    return successResponse(
+      res,
+      { id, new_branch_city: syncRes.isNew ? syncRes.branch : null },
+      null,
+      syncRes.isNew
+        ? `Rute diperbarui & kota baru "${syncRes.branch.city_name}" terhubung ke Owner!`
+        : 'Rute wilayah berhasil diperbarui'
+    );
   } catch (err) {
     await connection.rollback();
     return errorResponse(res, err.message, 500);
@@ -2423,6 +2743,32 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
       );
     }
 
+    // Sinkronkan kunjungan toko (visits) agar Hit Rate & Total Kunjungan Toko akurat
+    const nowTimeStr = now.toTimeString().split(' ')[0];
+    if (visit_id) {
+      await connection.query(
+        `UPDATE visits SET status = 'completed', result_type = 'order', check_out_time = IFNULL(check_out_time, ?) WHERE id = ?`,
+        [nowTimeStr, visit_id]
+      );
+    } else {
+      const [todayVisit] = await connection.query(
+        `SELECT id FROM visits WHERE sales_id = ? AND customer_id = ? AND visit_date = ? LIMIT 1`,
+        [salesId, customer_id, orderDate]
+      );
+      if (todayVisit.length > 0) {
+        await connection.query(
+          `UPDATE visits SET status = 'completed', result_type = 'order', check_out_time = IFNULL(check_out_time, ?) WHERE id = ?`,
+          [nowTimeStr, todayVisit[0].id]
+        );
+      } else {
+        await connection.query(
+          `INSERT INTO visits (sales_id, customer_id, visit_date, check_in_time, check_out_time, duration_minutes, status, result_type, notes)
+           VALUES (?, ?, ?, ?, ?, 15, 'completed', 'order', ?)`,
+          [salesId, customer_id, orderDate, nowTimeStr, nowTimeStr, `Kunjungan otomatis saat transaksi ${invoiceNumber}`]
+        );
+      }
+    }
+
     await connection.commit();
     return successResponse(res, {
       order_id: orderId,
@@ -2463,11 +2809,13 @@ app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
 // PUT /api/orders/:id/retail-status & /api/orders/:id/payment-status
 // Sales dan Admin bisa update status pembayaran tiap toko (Lunas / Belum Lunas) untuk semua jenis toko
 app.put('/api/orders/:id/payment-status', authenticateToken, async (req, res) => {
+  const connection = await pool.getConnection();
   try {
+    await connection.beginTransaction();
     const { id } = req.params;
     const { payment_status, payment_method, paid_amount, notes } = req.body;
 
-    const [orders] = await pool.query(
+    const [orders] = await connection.query(
       `SELECT o.*, c.name as customer_name, c.shop_type
        FROM orders o
        JOIN customers c ON o.customer_id = c.id
@@ -2476,6 +2824,7 @@ app.put('/api/orders/:id/payment-status', authenticateToken, async (req, res) =>
     );
 
     if (orders.length === 0) {
+      await connection.rollback();
       return errorResponse(res, 'Pesanan tidak ditemukan', 404);
     }
 
@@ -2483,44 +2832,62 @@ app.put('/api/orders/:id/payment-status', authenticateToken, async (req, res) =>
     const newPaymentStatus = payment_status || 'lunas';
     const method = payment_method || order.payment_method || 'tunai';
     const grandTotal = parseFloat(order.grand_total);
+    const oldPaidAmount = parseFloat(order.paid_amount || 0);
     const newPaidAmount = newPaymentStatus === 'lunas' ? grandTotal : (paid_amount !== undefined ? parseFloat(paid_amount) : 0);
+    const deltaPaid = newPaidAmount - oldPaidAmount;
 
-    await pool.query(
+    await connection.query(
       `UPDATE orders SET payment_status = ?, paid_amount = ?, payment_method = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [newPaymentStatus, newPaidAmount, method, id]
     );
 
-    // If marked lunas, create payment receipt entry if not exists
-    if (newPaymentStatus === 'lunas') {
-      const [existingPay] = await pool.query('SELECT id FROM payments WHERE order_id = ?', [id]);
-      if (existingPay.length === 0) {
-        const paymentNumber = `PAY-${Date.now()}-${Math.round(Math.random() * 1000)}`;
-        await pool.query(
-          `INSERT INTO payments (
-            payment_number, order_id, sales_id, customer_id, payment_date,
-            amount, payment_method, notes, received_by
-          ) VALUES (?, ?, ?, ?, CURRENT_DATE(), ?, ?, ?, ?)`,
-          [
-            paymentNumber, id, req.user.id, order.customer_id,
-            newPaidAmount, method, notes || `Pelunasan toko ${order.customer_name} oleh ${req.user.name}`, req.user.id
-          ]
-        );
-      }
+    // Sinkronkan saldo piutang toko (customers.current_balance)
+    if (deltaPaid > 0) {
+      await connection.query(
+        'UPDATE customers SET current_balance = GREATEST(0, current_balance - ?) WHERE id = ?',
+        [deltaPaid, order.customer_id]
+      );
+    } else if (deltaPaid < 0) {
+      await connection.query(
+        'UPDATE customers SET current_balance = current_balance + ? WHERE id = ?',
+        [Math.abs(deltaPaid), order.customer_id]
+      );
     }
 
+    // If marked lunas, create payment receipt entry if needed
+    if (newPaymentStatus === 'lunas' && deltaPaid > 0) {
+      const paymentNumber = `PAY-${Date.now()}-${Math.round(Math.random() * 1000)}`;
+      await connection.query(
+        `INSERT INTO payments (
+          payment_number, order_id, sales_id, customer_id, payment_date,
+          amount, payment_method, notes, received_by
+        ) VALUES (?, ?, ?, ?, CURRENT_DATE(), ?, ?, ?, ?)`,
+        [
+          paymentNumber, id, req.user.id, order.customer_id,
+          deltaPaid, method, notes || `Pelunasan toko ${order.customer_name} oleh ${req.user.name}`, req.user.id
+        ]
+      );
+    }
+
+    await connection.commit();
     return successResponse(res, { id, payment_status: newPaymentStatus, paid_amount: newPaidAmount }, null, `Status pembayaran berhasil diubah menjadi ${newPaymentStatus.toUpperCase()}`);
   } catch (err) {
+    await connection.rollback();
     return errorResponse(res, err.message, 500);
+  } finally {
+    connection.release();
   }
 });
 
 // Alias retail-status to payment-status for backwards compatibility
 app.put('/api/orders/:id/retail-status', authenticateToken, async (req, res) => {
+  const connection = await pool.getConnection();
   try {
+    await connection.beginTransaction();
     const { id } = req.params;
     const { payment_status, payment_method, notes } = req.body;
 
-    const [orders] = await pool.query(
+    const [orders] = await connection.query(
       `SELECT o.*, c.shop_type, c.name as customer_name
        FROM orders o
        JOIN customers c ON o.customer_id = c.id
@@ -2529,39 +2896,50 @@ app.put('/api/orders/:id/retail-status', authenticateToken, async (req, res) => 
     );
 
     if (orders.length === 0) {
+      await connection.rollback();
       return errorResponse(res, 'Pesanan tidak ditemukan', 404);
     }
 
     const order = orders[0];
     const newPaymentStatus = payment_status || 'lunas';
     const method = payment_method || 'tunai';
+    const oldPaidAmount = parseFloat(order.paid_amount || 0);
     const paidAmount = newPaymentStatus === 'lunas' ? parseFloat(order.grand_total) : (parseFloat(order.paid_amount) || 0);
+    const deltaPaid = paidAmount - oldPaidAmount;
 
-    await pool.query(
+    await connection.query(
       `UPDATE orders SET payment_status = ?, paid_amount = ?, payment_method = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [newPaymentStatus, paidAmount, method, id]
     );
 
-    if (newPaymentStatus === 'lunas') {
-      const [existingPay] = await pool.query('SELECT id FROM payments WHERE order_id = ?', [id]);
-      if (existingPay.length === 0) {
-        const paymentNumber = `PAY-${Date.now()}-${Math.round(Math.random() * 1000)}`;
-        await pool.query(
-          `INSERT INTO payments (
-            payment_number, order_id, sales_id, customer_id, payment_date,
-            amount, payment_method, notes, received_by
-          ) VALUES (?, ?, ?, ?, CURRENT_DATE(), ?, ?, ?, ?)`,
-          [
-            paymentNumber, id, req.user.id, order.customer_id,
-            paidAmount, method, notes || `Pelunasan tunai oleh ${req.user.name}`, req.user.id
-          ]
-        );
-      }
+    if (deltaPaid > 0) {
+      await connection.query(
+        'UPDATE customers SET current_balance = GREATEST(0, current_balance - ?) WHERE id = ?',
+        [deltaPaid, order.customer_id]
+      );
     }
 
+    if (newPaymentStatus === 'lunas' && deltaPaid > 0) {
+      const paymentNumber = `PAY-${Date.now()}-${Math.round(Math.random() * 1000)}`;
+      await connection.query(
+        `INSERT INTO payments (
+          payment_number, order_id, sales_id, customer_id, payment_date,
+          amount, payment_method, notes, received_by
+        ) VALUES (?, ?, ?, ?, CURRENT_DATE(), ?, ?, ?, ?)`,
+        [
+          paymentNumber, id, req.user.id, order.customer_id,
+          deltaPaid, method, notes || `Pelunasan tunai oleh ${req.user.name}`, req.user.id
+        ]
+      );
+    }
+
+    await connection.commit();
     return successResponse(res, { id, payment_status: newPaymentStatus, paid_amount: paidAmount }, null, 'Status pesanan berhasil diubah menjadi Lunas');
   } catch (err) {
+    await connection.rollback();
     return errorResponse(res, err.message, 500);
+  } finally {
+    connection.release();
   }
 });
 
@@ -2623,6 +3001,7 @@ app.get('/api/allowances/daily', authenticateToken, async (req, res) => {
 
     const [sumResult] = await pool.query(
       `SELECT 
+        COUNT(oa.id) as total_days,
         IFNULL(SUM(oa.bbm_amount), 0) as total_bbm,
         IFNULL(SUM(oa.motor_rent_amount), 0) as total_motor,
         IFNULL(SUM(oa.total_amount), 0) as grand_total,
@@ -2634,12 +3013,25 @@ app.get('/api/allowances/daily', authenticateToken, async (req, res) => {
       params
     );
 
+    const rawSum = sumResult[0] || {};
+    const summaryData = {
+      total_days: parseInt(rawSum.total_days || 0),
+      total_bbm: parseFloat(rawSum.total_bbm || 0),
+      total_motor: parseFloat(rawSum.total_motor || 0),
+      total_motor_rent: parseFloat(rawSum.total_motor || 0),
+      grand_total: parseFloat(rawSum.grand_total || 0),
+      total_allowance: parseFloat(rawSum.grand_total || 0),
+      total_paid: parseFloat(rawSum.total_paid || 0),
+      total_unpaid: parseFloat(rawSum.total_unpaid || 0),
+      total_pending: parseFloat(rawSum.total_unpaid || 0)
+    };
+
     return successResponse(res, rows, {
       page,
       limit,
       total,
       totalPages: Math.ceil(total / limit)
-    }, 'Data tunjangan operasional berhasil dimuat', sumResult[0]);
+    }, 'Data tunjangan operasional berhasil dimuat', { summary: summaryData });
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -2660,11 +3052,15 @@ app.get('/api/allowances/monthly', authenticateToken, async (req, res) => {
         u.vehicle_number,
         ? as period_month,
         COUNT(oa.id) as total_days,
+        COUNT(oa.id) as active_days,
         IFNULL(SUM(oa.bbm_amount), 0) as total_bbm,
         IFNULL(SUM(oa.motor_rent_amount), 0) as total_motor,
+        IFNULL(SUM(oa.motor_rent_amount), 0) as total_motor_rent,
         IFNULL(SUM(oa.total_amount), 0) as total_amount,
+        IFNULL(SUM(oa.total_amount), 0) as total_allowance,
         IFNULL(SUM(CASE WHEN oa.status = 'paid' THEN oa.total_amount ELSE 0 END), 0) as paid_amount,
-        IFNULL(SUM(CASE WHEN oa.status != 'paid' THEN oa.total_amount ELSE 0 END), 0) as pending_amount
+        IFNULL(SUM(CASE WHEN oa.status != 'paid' THEN oa.total_amount ELSE 0 END), 0) as pending_amount,
+        SUM(CASE WHEN oa.id IS NOT NULL AND oa.status != 'paid' THEN 1 ELSE 0 END) as pending_count
        FROM users u
        LEFT JOIN operational_allowances oa ON u.id = oa.sales_id AND DATE_FORMAT(oa.date, '%Y-%m') = ?
        WHERE u.role = 'sales' AND u.is_active = 1
@@ -2673,23 +3069,55 @@ app.get('/api/allowances/monthly', authenticateToken, async (req, res) => {
       [month, month]
     );
 
-    const grandSummary = rows.reduce(
-      (acc, curr) => ({
-        total_days: acc.total_days + parseInt(curr.total_days),
-        total_bbm: acc.total_bbm + parseFloat(curr.total_bbm),
-        total_motor: acc.total_motor + parseFloat(curr.total_motor),
-        grand_total: acc.grand_total + parseFloat(curr.total_amount),
-        total_paid: acc.total_paid + parseFloat(curr.paid_amount),
-        total_pending: acc.total_pending + parseFloat(curr.pending_amount)
-      }),
-      { total_days: 0, total_bbm: 0, total_motor: 0, grand_total: 0, total_paid: 0, total_pending: 0 }
+    const formattedRows = rows.map(r => ({
+      ...r,
+      total_days: parseInt(r.total_days || 0),
+      active_days: parseInt(r.active_days || 0),
+      total_bbm: parseFloat(r.total_bbm || 0),
+      total_motor: parseFloat(r.total_motor || 0),
+      total_motor_rent: parseFloat(r.total_motor_rent || 0),
+      total_amount: parseFloat(r.total_amount || 0),
+      total_allowance: parseFloat(r.total_allowance || 0),
+      paid_amount: parseFloat(r.paid_amount || 0),
+      pending_amount: parseFloat(r.pending_amount || 0),
+      pending_count: parseInt(r.pending_count || 0)
+    }));
+
+    const grandSummary = formattedRows.reduce(
+      (acc, curr) => {
+        const nextTotalAllowance = acc.total_allowance + curr.total_allowance;
+        const nextMotor = acc.total_motor_rent + curr.total_motor_rent;
+        const nextPending = acc.total_pending + curr.pending_amount;
+        return {
+          total_days: acc.total_days + curr.total_days,
+          total_bbm: acc.total_bbm + curr.total_bbm,
+          total_motor: nextMotor,
+          total_motor_rent: nextMotor,
+          grand_total: nextTotalAllowance,
+          total_allowance: nextTotalAllowance,
+          total_paid: acc.total_paid + curr.paid_amount,
+          total_pending: nextPending,
+          total_unpaid: nextPending
+        };
+      },
+      {
+        total_days: 0,
+        total_bbm: 0,
+        total_motor: 0,
+        total_motor_rent: 0,
+        grand_total: 0,
+        total_allowance: 0,
+        total_paid: 0,
+        total_pending: 0,
+        total_unpaid: 0
+      }
     );
 
     return successResponse(res, {
       month,
-      sales_allowances: rows,
+      sales_allowances: formattedRows,
       summary: grandSummary
-    });
+    }, null, 'Rekapitulasi tunjangan bulanan berhasil dimuat', { summary: grandSummary });
   } catch (err) {
     return errorResponse(res, err.message, 500);
   }
@@ -2928,20 +3356,27 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
 
-    // Total visits today
+    // Total explicit visits today + distinct order customers today not already visited
     const [visitsToday] = await pool.query('SELECT COUNT(*) as count FROM visits WHERE visit_date = ?', [today]);
-    // Total orders today
-    const [ordersToday] = await pool.query('SELECT COUNT(*) as count, IFNULL(SUM(grand_total), 0) as revenue FROM orders WHERE order_date = ?', [today]);
-    // Completed visits with order today
+    const [ordersToday] = await pool.query('SELECT COUNT(*) as count, IFNULL(SUM(grand_total), 0) as revenue, COUNT(DISTINCT customer_id) as distinct_customers FROM orders WHERE order_date = ? AND status != "cancelled" AND status != "rejected"', [today]);
     const [visitsWithOrder] = await pool.query('SELECT COUNT(*) as count FROM visits WHERE visit_date = ? AND result_type = "order"', [today]);
+    const [unvisitedOrderCustomers] = await pool.query(
+      `SELECT COUNT(DISTINCT o.customer_id) as count
+       FROM orders o
+       WHERE o.order_date = ? AND o.status != 'cancelled' AND o.status != 'rejected'
+         AND NOT EXISTS (
+           SELECT 1 FROM visits v WHERE v.sales_id = o.sales_id AND v.customer_id = o.customer_id AND v.visit_date = ?
+         )`,
+      [today, today]
+    );
     // Active sales count
     const [activeSales] = await pool.query('SELECT COUNT(*) as count FROM users WHERE role = "sales" AND is_active = 1');
     // Total customers
     const [totalCustomers] = await pool.query('SELECT COUNT(*) as count FROM customers WHERE is_active = 1');
 
-    const totalVisits = visitsToday[0].count;
-    const closingVisits = visitsWithOrder[0].count;
-    const hitRate = totalVisits > 0 ? Math.round((closingVisits / totalVisits) * 100) : 0;
+    const totalVisits = (visitsToday[0].count || 0) + (unvisitedOrderCustomers[0].count || 0);
+    const closingVisits = Math.max(visitsWithOrder[0].count || 0, ordersToday[0].distinct_customers || 0);
+    const hitRate = totalVisits > 0 ? Math.min(100, Math.round((closingVisits / totalVisits) * 100)) : 0;
 
     return successResponse(res, {
       visits_today: totalVisits,
@@ -2964,21 +3399,38 @@ app.get('/api/reports/sales-performance', authenticateToken, async (req, res) =>
 
     const [rows] = await pool.query(
       `SELECT u.id as sales_id, u.name as sales_name, u.vehicle_type, u.vehicle_number,
-              (SELECT COUNT(*) FROM visits v WHERE v.sales_id = u.id AND v.visit_date BETWEEN ? AND ?) as total_visits,
-              (SELECT COUNT(*) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled') as total_orders,
-              (SELECT IFNULL(SUM(o.grand_total), 0) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled') as total_revenue,
-              (SELECT COUNT(*) FROM visits v WHERE v.sales_id = u.id AND v.result_type = 'order' AND v.visit_date BETWEEN ? AND ?) as closing_visits
+              (SELECT COUNT(*) FROM visits v WHERE v.sales_id = u.id AND v.visit_date BETWEEN ? AND ?) as explicit_visits,
+              (SELECT COUNT(*) FROM (
+                SELECT DISTINCT o.customer_id, o.order_date
+                FROM orders o
+                WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM visits v WHERE v.sales_id = o.sales_id AND v.customer_id = o.customer_id AND v.visit_date = o.order_date
+                  )
+              ) ov) as unvisited_order_visits,
+              (SELECT COUNT(*) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected') as total_orders,
+              (SELECT COUNT(DISTINCT CONCAT(o.customer_id, '-', o.order_date)) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected') as distinct_order_visits,
+              (SELECT IFNULL(SUM(o.grand_total), 0) FROM orders o WHERE o.sales_id = u.id AND o.order_date BETWEEN ? AND ? AND o.status != 'cancelled' AND o.status != 'rejected') as total_revenue,
+              (SELECT COUNT(*) FROM visits v WHERE v.sales_id = u.id AND v.result_type = 'order' AND v.visit_date BETWEEN ? AND ?) as explicit_closing_visits
        FROM users u
        WHERE u.role = 'sales' AND u.is_active = 1
        ORDER BY total_revenue DESC`,
-      [startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate]
+      [startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate]
     );
 
     const formatted = rows.map(r => {
-      const hitRate = r.total_visits > 0 ? Math.round((r.closing_visits / r.total_visits) * 100) : 0;
+      const totalVisits = (parseInt(r.explicit_visits || 0)) + (parseInt(r.unvisited_order_visits || 0));
+      const closingVisits = Math.max(parseInt(r.explicit_closing_visits || 0), parseInt(r.distinct_order_visits || 0));
+      const hitRate = totalVisits > 0 ? Math.min(100, Math.round((closingVisits / totalVisits) * 100)) : 0;
       return {
-        ...r,
-        total_revenue: parseFloat(r.total_revenue),
+        sales_id: r.sales_id,
+        sales_name: r.sales_name,
+        vehicle_type: r.vehicle_type,
+        vehicle_number: r.vehicle_number,
+        total_visits: totalVisits,
+        total_orders: parseInt(r.total_orders || 0),
+        closing_visits: closingVisits,
+        total_revenue: parseFloat(r.total_revenue || 0),
         hit_rate_percent: hitRate
       };
     });
@@ -3082,12 +3534,14 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
       };
     });
 
-    // Gabungkan daftar kota/cabang yang ditambahkan Owner di tabel branch_cities
+    // Gabungkan daftar kota/cabang yang ditambahkan Owner / Admin di tabel branch_cities
     const [registeredBranches] = await pool.query(
-      'SELECT id, city_name, province_name, regency_code, notes FROM branch_cities WHERE is_active = 1 ORDER BY city_name ASC'
+      `SELECT id, city_name, province_name, regency_code, notes, IFNULL(source, 'owner') as source,
+              DATE_FORMAT(created_at, '%Y-%m-%d') as opened_date
+       FROM branch_cities WHERE is_active = 1 ORDER BY id DESC`
     ).catch(() => [[]]);
 
-    // Lampirkan branch_id & province_name ke kota yang sudah ada di branchReports
+    // Lampirkan branch_id, province_name & source ke kota yang sudah ada di branchReports
     for (const br of branchReports) {
       const regMatch = registeredBranches.find(
         (rb) => rb.city_name.toLowerCase() === br.branch_city.toLowerCase()
@@ -3096,6 +3550,8 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
       br.province_name = regMatch ? regMatch.province_name : null;
       br.regency_code = regMatch ? regMatch.regency_code : null;
       br.notes = regMatch ? regMatch.notes : null;
+      br.source = regMatch ? (regMatch.source || 'owner') : 'customer';
+      br.opened_date = regMatch ? regMatch.opened_date : null;
     }
 
     for (const rb of registeredBranches) {
@@ -3106,6 +3562,8 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
           province_name: rb.province_name,
           regency_code: rb.regency_code,
           notes: rb.notes,
+          source: rb.source || 'owner',
+          opened_date: rb.opened_date || null,
           total_customers: 0,
           total_orders: 0,
           revenue: 0,
@@ -3116,6 +3574,34 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
         });
       }
     }
+
+    // Pastikan kota dari rute aktif Admin juga muncul jika belum masuk branch_cities
+    const [routeCities] = await pool.query(
+      `SELECT DISTINCT regency_name as city_name, province_name
+       FROM routes WHERE is_active = 1 AND regency_name IS NOT NULL AND regency_name != ''`
+    ).catch(() => [[]]);
+    for (const rc of routeCities) {
+      if (!branchReports.some(b => b.branch_city.toLowerCase() === rc.city_name.toLowerCase())) {
+        branchReports.push({
+          branch_id: null,
+          branch_city: rc.city_name,
+          province_name: rc.province_name || 'Jawa Timur',
+          regency_code: null,
+          notes: 'Kota aktif dari jadwal rute Admin',
+          source: 'admin',
+          opened_date: null,
+          total_customers: 0,
+          total_orders: 0,
+          revenue: 0,
+          collected: 0,
+          cogs: 0,
+          profit: 0,
+          margin_percent: 0
+        });
+      }
+    }
+
+    const newAdminBranches = branchReports.filter(b => b.source === 'admin' || b.source === 'sales');
 
     // 4. GRAFIK PERTUMBUHAN BULANAN
     const [monthlyRows] = await pool.query(
@@ -3202,6 +3688,7 @@ app.get('/api/owner/analytics', authenticateToken, async (req, res) => {
       selected_city: selectedCity,
       selected_city_data: selectedCityData,
       available_cities: branchReports.map(b => b.branch_city),
+      new_admin_branches: newAdminBranches,
       branch_performance: branchReports,
       growth_chart: {
         monthly: monthlyGrowth.length > 0 ? monthlyGrowth : [
@@ -3554,11 +4041,14 @@ app.put('/api/deposits/:id/status', authenticateToken, async (req, res) => {
 // DELETE /api/deposits/:id
 app.delete('/api/deposits/:id', authenticateToken, async (req, res) => {
   try {
-    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+    if (!['admin', 'owner', 'supervisor'].includes(req.user.role)) {
       return errorResponse(res, 'Akses terbatas untuk Admin & Owner', 403);
     }
     const { id } = req.params;
-    await pool.query('DELETE FROM daily_deposits WHERE id = ?', [id]);
+    const [result] = await pool.query('DELETE FROM daily_deposits WHERE id = ?', [id]);
+    if (result.affectedRows === 0) {
+      return errorResponse(res, 'Data setoran tidak ditemukan', 404);
+    }
     return successResponse(res, { id }, null, 'Data setoran berhasil dihapus');
   } catch (err) {
     return errorResponse(res, err.message, 500);
@@ -3594,21 +4084,30 @@ app.get('/api/targets', authenticateToken, async (req, res) => {
     );
 
     const [realizations] = await pool.query(
-      `SELECT 
-        o.sales_id,
-        CASE 
-          WHEN DAY(o.order_date) BETWEEN 1 AND 7 THEN 1
-          WHEN DAY(o.order_date) BETWEEN 8 AND 14 THEN 2
-          WHEN DAY(o.order_date) BETWEEN 15 AND 21 THEN 3
-          ELSE 4
-        END as week_number,
-        IFNULL(SUM(o.grand_total), 0) as actual_rupiah,
-        IFNULL(SUM(oi.qty), 0) as actual_pack
-       FROM orders o
-       JOIN order_items oi ON o.id = oi.order_id
-       WHERE DATE_FORMAT(o.order_date, '%Y-%m') = ?
-         AND o.status != 'cancelled' AND o.status != 'rejected'
-       GROUP BY o.sales_id, week_number`,
+      `SELECT
+        t.sales_id,
+        t.week_number,
+        IFNULL(SUM(t.grand_total), 0) as actual_rupiah,
+        IFNULL(SUM(t.pack_qty), 0) as actual_pack
+       FROM (
+         SELECT
+           o.id,
+           o.sales_id,
+           o.grand_total,
+           CASE
+             WHEN DAY(o.order_date) BETWEEN 1 AND 7 THEN 1
+             WHEN DAY(o.order_date) BETWEEN 8 AND 14 THEN 2
+             WHEN DAY(o.order_date) BETWEEN 15 AND 21 THEN 3
+             ELSE 4
+           END as week_number,
+           IFNULL(SUM(oi.qty), 0) as pack_qty
+         FROM orders o
+         LEFT JOIN order_items oi ON o.id = oi.order_id
+         WHERE DATE_FORMAT(o.order_date, '%Y-%m') = ?
+           AND o.status != 'cancelled' AND o.status != 'rejected'
+         GROUP BY o.id, o.sales_id, o.grand_total, week_number
+       ) t
+       GROUP BY t.sales_id, t.week_number`,
       [month]
     );
 
@@ -3695,7 +4194,8 @@ app.get('/api/targets/my-progress', authenticateToken, async (req, res) => {
     const [orderRows] = await pool.query(
       `SELECT 
         o.id,
-        o.order_number,
+        o.invoice_number,
+        DATE_FORMAT(o.order_date, '%Y-%m-%d') as order_date_str,
         o.order_date,
         o.grand_total,
         DAY(o.order_date) as order_day,
@@ -3707,18 +4207,18 @@ app.get('/api/targets/my-progress', authenticateToken, async (req, res) => {
         END as week_number,
         IFNULL(SUM(oi.qty), 0) as pack_qty
        FROM orders o
-       JOIN order_items oi ON o.id = oi.order_id
+       LEFT JOIN order_items oi ON o.id = oi.order_id
        WHERE o.sales_id = ? 
          AND DATE_FORMAT(o.order_date, '%Y-%m') = ?
          AND o.status != 'cancelled' AND o.status != 'rejected'
-       GROUP BY o.id, o.order_number, o.order_date, o.grand_total, order_day, week_number
+       GROUP BY o.id, o.invoice_number, o.order_date, o.grand_total, order_day, week_number
        ORDER BY o.order_date DESC`,
       [salesId, month]
     );
 
     const dailyBreakdown = {};
     orderRows.forEach(o => {
-      const day = o.order_date.toISOString().split('T')[0];
+      const day = o.order_date_str || (o.order_date instanceof Date ? o.order_date.toISOString().split('T')[0] : String(o.order_date).substring(0, 10));
       if (!dailyBreakdown[day]) {
         dailyBreakdown[day] = { date: day, pack: 0, rupiah: 0, orders: 0 };
       }

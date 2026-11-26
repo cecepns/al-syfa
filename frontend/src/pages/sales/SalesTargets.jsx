@@ -17,14 +17,13 @@ import toast from 'react-hot-toast';
 import MobileLayout from '../../components/layout/MobileLayout';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+import { formatDateID, formatMonthYearID, getCurrentMonthISO } from '../../utils/dateFormat';
 
 export default function SalesTargets() {
   const user = JSON.parse(localStorage.getItem('alsyifa_user') || '{}');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedMonth, setSelectedMonth] = useState(
-    new Date().toISOString().substring(0, 7)
-  );
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthISO());
 
   useEffect(() => {
     fetchTargets();
@@ -93,7 +92,7 @@ export default function SalesTargets() {
             </span>
           </div>
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-            {selectedMonth}
+            {formatMonthYearID(selectedMonth)}
           </span>
         </div>
 
@@ -265,7 +264,7 @@ export default function SalesTargets() {
                 className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs"
               >
                 <div>
-                  <p className="font-bold text-slate-800 font-mono">{dayItem.date}</p>
+                  <p className="font-bold text-slate-800 font-mono">{formatDateID(dayItem.date)}</p>
                   <p className="text-[10px] text-slate-500">
                     {dayItem.orders} order • {dayItem.pack} pack
                   </p>

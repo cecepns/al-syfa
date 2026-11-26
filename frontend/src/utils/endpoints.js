@@ -49,11 +49,13 @@ export const API_ENDPOINTS = {
 
   CUSTOMERS: {
     LIST: "/customers",
+    TRANSACTED: "/customers/transacted",
     DETAIL: (id) => `/customers/${id}`,
     PURCHASE_HISTORY: (id) => `/customers/${id}/purchase-history`,
     CREATE: "/customers",
     UPDATE: (id) => `/customers/${id}`,
     UPDATE_STATUS: (id) => `/customers/${id}/status`,
+    SETTLE_BALANCE: (id) => `/customers/${id}/settle-balance`,
     DELETE: (id) => `/customers/${id}`,
   },
 

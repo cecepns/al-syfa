@@ -17,6 +17,7 @@ import toast from 'react-hot-toast';
 import MobileLayout from '../../components/layout/MobileLayout';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+import { formatDateID, formatMonthYearID, getTodayISO, getCurrentMonthISO } from '../../utils/dateFormat';
 
 export default function SalesAllowances() {
   const user = JSON.parse(localStorage.getItem('alsyifa_user') || '{}');
@@ -26,8 +27,8 @@ export default function SalesAllowances() {
   const [loading, setLoading] = useState(true);
   const [claiming, setClaiming] = useState(false);
 
-  const todayStr = new Date().toISOString().substring(0, 10);
-  const currentMonthStr = todayStr.substring(0, 7);
+  const todayStr = getTodayISO();
+  const currentMonthStr = getCurrentMonthISO();
 
   useEffect(() => {
     fetchData();
@@ -39,11 +40,28 @@ export default function SalesAllowances() {
       const res = await request.get(API_ENDPOINTS.ALLOWANCES.DAILY, {
         sales_id: user.id,
         month: currentMonthStr,
+        limit: 50,
       });
 
       const list = res.data || [];
       setAllowances(list);
-      setSummary(res.summary || null);
+
+      // Compute reliable summary from backend summary or list fallback
+      const rawSum = res.summary || {};
+      const listTotalAllowance = list.reduce((acc, it) => acc + Number(it.total_amount || 0), 0);
+      const listTotalPaid = list
+        .filter((it) => it.status === 'paid')
+        .reduce((acc, it) => acc + Number(it.total_amount || 0), 0);
+      const listTotalPending = list
+        .filter((it) => it.status !== 'paid')
+        .reduce((acc, it) => acc + Number(it.total_amount || 0), 0);
+
+      setSummary({
+        total_days: Number(rawSum.total_days ?? list.length),
+        total_allowance: Number(rawSum.total_allowance ?? rawSum.grand_total ?? listTotalAllowance),
+        total_paid: Number(rawSum.total_paid ?? listTotalPaid),
+        total_pending: Number(rawSum.total_pending ?? rawSum.total_unpaid ?? listTotalPending),
+      });
 
       const foundToday = list.find((item) => {
         const itemDate = item.date ? item.date.substring(0, 10) : '';
@@ -175,7 +193,7 @@ export default function SalesAllowances() {
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                 Akumulasi Bulan Ini
               </h3>
-              <p className="text-[10px] text-slate-400">Total terkumpul periode {currentMonthStr}</p>
+              <p className="text-[10px] text-slate-400">Total terkumpul periode {formatMonthYearID(currentMonthStr)}</p>
             </div>
           </div>
           <div className="text-right">
@@ -230,7 +248,7 @@ export default function SalesAllowances() {
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-xs font-bold text-slate-800 font-mono">
-                      {item.date ? item.date.substring(0, 10) : '-'}
+                      {formatDateID(item.date)}
                     </span>
                     {getStatusBadge(item.status)}
                   </div>
@@ -239,7 +257,7 @@ export default function SalesAllowances() {
                   </p>
                   {item.paid_date && (
                     <p className="text-[10px] text-emerald-600 mt-0.5">
-                      Cair: {item.paid_date.substring(0, 10)}
+                      Cair: {formatDateID(item.paid_date)}
                     </p>
                   )}
                 </div>
