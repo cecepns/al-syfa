@@ -14,14 +14,16 @@ import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+import { formatDateID, getTodayISO } from '../../utils/dateFormat';
 
 export default function SalesReports() {
   const [performance, setPerformance] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [startDate, setStartDate] = useState(
-    new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
-  );
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  });
+  const [endDate, setEndDate] = useState(getTodayISO());
 
   useEffect(() => {
     fetchPerformanceData();
@@ -73,25 +75,30 @@ export default function SalesReports() {
       </div>
 
       {/* Date Filter Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex flex-col sm:flex-row items-center gap-3 text-xs">
-        <span className="font-bold text-slate-700 flex items-center gap-1.5">
-          <Calendar className="h-4 w-4 text-emerald-600" /> Periode Laporan:
-        </span>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="rounded-xl border border-slate-200 p-2 text-slate-800"
-          />
-          <span className="text-slate-400">s/d</span>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="rounded-xl border border-slate-200 p-2 text-slate-800"
-          />
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          <span className="font-bold text-slate-700 flex items-center gap-1.5">
+            <Calendar className="h-4 w-4 text-emerald-600" /> Periode Laporan:
+          </span>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="rounded-xl border border-slate-200 p-2 text-slate-800"
+            />
+            <span className="text-slate-400">s/d</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="rounded-xl border border-slate-200 p-2 text-slate-800"
+            />
+          </div>
         </div>
+        <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
+          {formatDateID(startDate)} s/d {formatDateID(endDate)}
+        </span>
       </div>
 
       {/* Summary KPI Cards */}

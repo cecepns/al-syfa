@@ -19,6 +19,7 @@ import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 import { useGeolocation } from '../../hooks/useGeolocation';
+import { formatDateID } from '../../utils/dateFormat';
 
 export default function VisitCheckIn() {
   const { customerId } = useParams();
@@ -269,7 +270,7 @@ export default function VisitCheckIn() {
               <div key={ord.id} className="py-2 flex items-center justify-between">
                 <div>
                   <p className="font-bold text-slate-800">{ord.invoice_number}</p>
-                  <p className="text-[10px] text-slate-400">{ord.order_date}</p>
+                  <p className="text-[10px] text-slate-400 font-mono">{formatDateID(ord.order_date)}</p>
                 </div>
                 <div className="text-right">
                   <p className="font-bold text-slate-900">

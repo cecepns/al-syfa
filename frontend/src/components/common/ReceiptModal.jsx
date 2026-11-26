@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import Modal from './Modal';
 import toast from 'react-hot-toast';
+import { formatDateID } from '../../utils/dateFormat';
 import {
   isWebBluetoothSupported,
   getBluetoothPrinterState,
@@ -195,7 +196,7 @@ export default function ReceiptModal({ isOpen, onClose, order }) {
       '             Telp/WA: 0812-3456-7890            '.substring(0, lineLen),
       divider,
       `No Faktur : ${order.invoice_number}`,
-      `Tanggal   : ${order.order_date?.substring(0, 10)}`,
+      `Tanggal   : ${formatDateID(order.order_date)}`,
       `Sales     : ${order.sales_name || '-'}`,
       `Pelanggan : ${order.customer_name || '-'}`,
       `Alamat    : ${order.customer_address || '-'}`,
@@ -360,7 +361,7 @@ export default function ReceiptModal({ isOpen, onClose, order }) {
                 <div className="space-y-1">
                   <div className="flex gap-2">
                     <span className="w-24 text-slate-500">Tanggal Faktur:</span>
-                    <span className="font-semibold">{order.order_date?.substring(0, 10)}</span>
+                    <span className="font-semibold">{formatDateID(order.order_date)}</span>
                   </div>
                   <div className="flex gap-2">
                     <span className="w-24 text-slate-500">Sales Pembina:</span>
@@ -479,7 +480,7 @@ export default function ReceiptModal({ isOpen, onClose, order }) {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Tgl:</span>
-                  <span>{order.order_date?.substring(0, 10)}</span>
+                  <span>{formatDateID(order.order_date)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Sales:</span>

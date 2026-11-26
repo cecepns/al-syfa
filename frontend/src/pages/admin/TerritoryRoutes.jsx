@@ -21,6 +21,7 @@ import AppSelect from '../../components/common/AppSelect';
 import DebouncedAsyncSelect from '../../components/common/DebouncedAsyncSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+import { EAST_JAVA_CITIES } from '../../utils/eastJavaCities';
 
 export default function TerritoryRoutes() {
   const [routes, setRoutes] = useState([]);
@@ -40,8 +41,10 @@ export default function TerritoryRoutes() {
   const [form, setForm] = useState({
     sales_id: '',
     day_of_week: 'senin',
-    province_name: 'Jawa Barat',
-    regency_name: 'Kabupaten Bogor',
+    province_code: '35',
+    province_name: 'Jawa Timur',
+    regency_code: '35.78',
+    regency_name: 'Kota Surabaya',
     district_code: '',
     district_name: '',
     village_names: '',
@@ -49,7 +52,9 @@ export default function TerritoryRoutes() {
     customer_ids: []
   });
 
-  // Wilayah.id Integration for District & Villages
+  // Wilayah.id Integration: Provinsi -> Kota/Kab -> Kecamatan -> Desa
+  const [provinces, setProvinces] = useState([]);
+  const [regencies, setRegencies] = useState([]);
   const [districts, setDistricts] = useState([]);
   const [villages, setVillages] = useState([]);
 
@@ -63,7 +68,7 @@ export default function TerritoryRoutes() {
 
   useEffect(() => {
     fetchSalesAndCustomers();
-    loadDistricts('32.01'); // Kabupaten Bogor
+    loadProvinces();
   }, []);
 
   const fetchRoutes = async () => {
@@ -97,21 +102,68 @@ export default function TerritoryRoutes() {
     }
   };
 
+  const loadProvinces = async () => {
+    try {
+      const res = await request.get(API_ENDPOINTS.WILAYAH.PROVINCES);
+      setProvinces(res.data || []);
+      return res.data || [];
+    } catch (e) {
+      console.warn(e);
+      return [];
+    }
+  };
+
+  const loadRegencies = async (provCode) => {
+    if (!provCode) {
+      setRegencies([]);
+      return [];
+    }
+    try {
+      const res = await request.get(API_ENDPOINTS.WILAYAH.REGENCIES(provCode));
+      let list = res.data || [];
+      if (provCode === '35' && list.length === 0) {
+        list = EAST_JAVA_CITIES.map((c) => ({ code: c.code, name: c.name }));
+      }
+      setRegencies(list);
+      return list;
+    } catch (e) {
+      if (provCode === '35') {
+        const list = EAST_JAVA_CITIES.map((c) => ({ code: c.code, name: c.name }));
+        setRegencies(list);
+        return list;
+      }
+      setRegencies([]);
+      return [];
+    }
+  };
+
   const loadDistricts = async (regCode) => {
+    if (!regCode) {
+      setDistricts([]);
+      return [];
+    }
     try {
       const res = await request.get(API_ENDPOINTS.WILAYAH.DISTRICTS(regCode));
       setDistricts(res.data || []);
+      return res.data || [];
     } catch (e) {
       console.warn(e);
+      setDistricts([]);
+      return [];
     }
   };
 
   const loadVillages = async (distCode) => {
+    if (!distCode) {
+      setVillages([]);
+      return;
+    }
     try {
       const res = await request.get(API_ENDPOINTS.WILAYAH.VILLAGES(distCode));
       setVillages(res.data || []);
     } catch (e) {
       console.warn(e);
+      setVillages([]);
     }
   };
 
@@ -131,6 +183,37 @@ export default function TerritoryRoutes() {
     }
   };
 
+  const handleProvinceChange = (provCode) => {
+    const selected = provinces.find((p) => p.code === provCode);
+    setForm((prev) => ({
+      ...prev,
+      province_code: provCode,
+      province_name: selected?.name || '',
+      regency_code: '',
+      regency_name: '',
+      district_code: '',
+      district_name: '',
+      village_names: '',
+    }));
+    setDistricts([]);
+    setVillages([]);
+    loadRegencies(provCode);
+  };
+
+  const handleRegencyChange = (regCode) => {
+    const selected = regencies.find((r) => r.code === regCode);
+    setForm((prev) => ({
+      ...prev,
+      regency_code: regCode,
+      regency_name: selected?.name || '',
+      district_code: '',
+      district_name: '',
+      village_names: '',
+    }));
+    setVillages([]);
+    loadDistricts(regCode);
+  };
+
   const handleDistrictChange = (distCode) => {
     const selected = districts.find((d) => d.code === distCode);
     setForm((prev) => ({
@@ -142,56 +225,92 @@ export default function TerritoryRoutes() {
     loadVillages(distCode);
   };
 
-  const handleOpenCreate = () => {
+  const handleOpenCreate = async () => {
     setEditId(null);
+    const defaultProvCode = '35';
+    const defaultRegCode = '35.78';
     setForm({
       sales_id: salesList[0]?.id || '',
       day_of_week: 'senin',
-      province_name: 'Jawa Barat',
-      regency_name: 'Kabupaten Bogor',
+      province_code: defaultProvCode,
+      province_name: 'Jawa Timur',
+      regency_code: defaultRegCode,
+      regency_name: 'Kota Surabaya',
       district_code: '',
       district_name: '',
       village_names: '',
       notes: '',
       customer_ids: []
     });
+    setVillages([]);
     setModalOpen(true);
+    await loadProvinces();
+    await loadRegencies(defaultProvCode);
+    await loadDistricts(defaultRegCode);
   };
 
   const handleOpenEdit = async (route) => {
     setEditId(route.id);
+    const provList = provinces.length > 0 ? provinces : await loadProvinces();
+    const matchedProv = provList.find(
+      (p) => p.name.toLowerCase() === (route.province_name || '').toLowerCase()
+    );
+    const inferredProvCode =
+      matchedProv?.code ||
+      (route.district_code ? String(route.district_code).split('.')[0] : '') ||
+      ((route.province_name || '').toLowerCase().includes('jawa timur') ? '35' : '32');
+
+    const regList = await loadRegencies(inferredProvCode);
+    const matchedReg = regList.find(
+      (r) => r.name.toLowerCase() === (route.regency_name || '').toLowerCase()
+    );
+    const inferredRegCode =
+      matchedReg?.code ||
+      (route.district_code ? String(route.district_code).split('.').slice(0, 2).join('.') : '');
+
     setForm({
       sales_id: route.sales_id,
       day_of_week: route.day_of_week,
-      province_name: route.province_name,
-      regency_name: route.regency_name,
+      province_code: inferredProvCode,
+      province_name: route.province_name || matchedProv?.name || '',
+      regency_code: inferredRegCode,
+      regency_name: route.regency_name || matchedReg?.name || '',
       district_code: route.district_code || '',
       district_name: route.district_name,
       village_names: route.village_names || '',
       notes: route.notes || '',
       customer_ids: []
     });
+    setModalOpen(true);
+
+    if (inferredRegCode) {
+      await loadDistricts(inferredRegCode);
+    } else {
+      setDistricts([]);
+    }
     if (route.district_code) {
       loadVillages(route.district_code);
+    } else {
+      setVillages([]);
     }
-    setModalOpen(true);
   };
 
   const handleSubmitForm = async (e) => {
     e.preventDefault();
-    if (!form.sales_id || !form.district_name) {
-      toast.error('Pilih sales dan kecamatan wilayah kerja');
+    if (!form.sales_id || !form.province_name || !form.regency_name || !form.district_name) {
+      toast.error('Pilih sales, provinsi, kota/kabupaten, dan kecamatan wilayah kerja');
       return;
     }
 
     setSubmitting(true);
     try {
+      let res;
       if (editId) {
-        await request.put(API_ENDPOINTS.ROUTES.UPDATE(editId), form);
-        toast.success('Rute wilayah berhasil diperbarui!');
+        res = await request.put(API_ENDPOINTS.ROUTES.UPDATE(editId), form);
+        toast.success(res.message || 'Rute wilayah berhasil diperbarui!');
       } else {
-        await request.post(API_ENDPOINTS.ROUTES.CREATE, form);
-        toast.success('Jadwal rute wilayah baru berhasil dibuat!');
+        res = await request.post(API_ENDPOINTS.ROUTES.CREATE, form);
+        toast.success(res.message || 'Jadwal rute wilayah baru berhasil dibuat!');
       }
       setModalOpen(false);
       fetchRoutes();
@@ -285,6 +404,7 @@ export default function TerritoryRoutes() {
               <tr>
                 <th className="px-5 py-3">Hari</th>
                 <th className="px-5 py-3">Sales Petugas</th>
+                <th className="px-5 py-3">Provinsi & Kota/Kab</th>
                 <th className="px-5 py-3">Kecamatan</th>
                 <th className="px-5 py-3">Cakupan Desa / Kelurahan</th>
                 <th className="px-5 py-3 text-center">Toko Terdaftar</th>
@@ -294,7 +414,7 @@ export default function TerritoryRoutes() {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-slate-400">
+                  <td colSpan={7} className="px-5 py-8 text-center text-slate-400">
                     Memuat data rute...
                   </td>
                 </tr>
@@ -312,9 +432,15 @@ export default function TerritoryRoutes() {
                         {r.vehicle_type} ({r.vehicle_number || '-'})
                       </p>
                     </td>
-                    <td className="px-5 py-3.5 font-bold text-slate-900 flex items-center gap-1.5">
-                      <MapPin className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                      {r.district_name}
+                    <td className="px-5 py-3.5">
+                      <p className="font-bold text-slate-800">{r.regency_name || '-'}</p>
+                      <p className="text-[10px] text-slate-400">{r.province_name || '-'}</p>
+                    </td>
+                    <td className="px-5 py-3.5 font-bold text-slate-900">
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                        <span>{r.district_name}</span>
+                      </div>
                     </td>
                     <td className="px-5 py-3.5 max-w-xs text-slate-600">
                       {r.village_names || 'Seluruh Desa'}
@@ -345,7 +471,7 @@ export default function TerritoryRoutes() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-slate-400">
+                  <td colSpan={7} className="px-5 py-8 text-center text-slate-400">
                     Tidak ada jadwal rute yang cocok dengan pencarian.
                   </td>
                 </tr>
@@ -407,18 +533,45 @@ export default function TerritoryRoutes() {
             </div>
           </div>
 
-          {/* Wilayah.id integration */}
+          {/* Wilayah.id integration: Provinsi -> Kota/Kab -> Kecamatan -> Desa */}
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-            <span className="font-bold text-slate-700 block uppercase tracking-wider text-[11px]">
-              Pemetaan Wilayah (API wilayah.id)
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-700 block uppercase tracking-wider text-[11px]">
+                Pemetaan Wilayah (API wilayah.id)
+              </span>
+              <span className="text-[10px] text-emerald-700 font-semibold">
+                Kota baru otomatis terhubung ke Owner
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-slate-500 font-semibold mb-1">Provinsi *</label>
+                <AppSelect
+                  value={form.province_code}
+                  onChange={(val) => handleProvinceChange(val)}
+                  placeholder="Pilih Provinsi..."
+                  options={provinces.map((p) => ({ value: p.code, label: p.name }))}
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-500 font-semibold mb-1">Kota / Kabupaten *</label>
+                <AppSelect
+                  value={form.regency_code}
+                  onChange={(val) => handleRegencyChange(val)}
+                  placeholder="Pilih Kota / Kabupaten..."
+                  options={regencies.map((r) => ({ value: r.code, label: r.name }))}
+                />
+              </div>
+            </div>
 
             <div>
               <label className="block text-slate-500 font-semibold mb-1">Kecamatan *</label>
               <AppSelect
                 value={form.district_code}
                 onChange={(val) => handleDistrictChange(val)}
-                placeholder="Pilih Kecamatan di Kab. Bogor..."
+                placeholder={form.regency_name ? `Pilih Kecamatan di ${form.regency_name}...` : 'Pilih Kota/Kabupaten terlebih dahulu...'}
                 options={districts.map((d) => ({ value: d.code, label: d.name }))}
               />
             </div>

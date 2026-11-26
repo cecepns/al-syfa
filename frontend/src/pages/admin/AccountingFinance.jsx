@@ -19,6 +19,7 @@ import SearchInput from '../../components/common/SearchInput';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
+import { formatDateID } from '../../utils/dateFormat';
 
 export default function AccountingFinance() {
   const [payments, setPayments] = useState([]);
@@ -258,7 +259,7 @@ export default function AccountingFinance() {
                         <span>{p.payment_number}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5 text-slate-500">{p.payment_date}</td>
+                    <td className="px-5 py-3.5 text-slate-500 font-mono">{formatDateID(p.payment_date)}</td>
                     <td className="px-5 py-3.5 font-mono text-slate-600">{p.invoice_number}</td>
                     <td className="px-5 py-3.5 font-bold text-slate-800">{p.customer_name}</td>
                     <td className="px-5 py-3.5 text-slate-700">{p.sales_name}</td>

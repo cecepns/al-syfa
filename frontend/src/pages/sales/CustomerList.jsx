@@ -14,7 +14,11 @@ import {
   Trash2,
   Tag,
   FileText,
-  Power
+  Power,
+  Banknote,
+  Calendar,
+  RefreshCw,
+  CheckCircle2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import MobileLayout from '../../components/layout/MobileLayout';
@@ -28,6 +32,7 @@ import { request } from '../../utils/request';
 import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { EAST_JAVA_CITIES } from '../../utils/eastJavaCities';
+import { formatDateID, formatMonthYearID, getTodayISO, getCurrentMonthISO } from '../../utils/dateFormat';
 
 const STORE_LABEL_PRESETS = ['Toko Baru', 'Outlet Baru', 'Potensial', 'Langganan', 'Prioritas'];
 
@@ -80,6 +85,22 @@ export default function CustomerList() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
+  // Settle Piutang (Pelunasan Saldo Toko) State
+  const [settleTarget, setSettleTarget] = useState(null);
+  const [settleOpen, setSettleOpen] = useState(false);
+  const [settleMethod, setSettleMethod] = useState('tunai');
+  const [settling, setSettling] = useState(false);
+
+  // Transacted Stores (Follow Up Tanggal / Bulan / Tahun) State
+  const [viewTab, setViewTab] = useState('all'); // 'all' | 'transacted'
+  const [transFilterMode, setTransFilterMode] = useState('followup'); // 'followup' | 'day' | 'month' | 'year'
+  const [transDate, setTransDate] = useState(getTodayISO());
+  const [transMonth, setTransMonth] = useState(getCurrentMonthISO());
+  const [transYear, setTransYear] = useState(String(new Date().getFullYear()));
+  const [transactedList, setTransactedList] = useState([]);
+  const [transGroups, setTransGroups] = useState([]);
+  const [transLoading, setTransLoading] = useState(false);
+
   // Wilayah API & Branches options
   const [provinces, setProvinces] = useState([]);
   const [regencies, setRegencies] = useState([]);
@@ -94,8 +115,34 @@ export default function CustomerList() {
   }, [page, limit, search, shopType, statusFilter, labelFilter]);
 
   useEffect(() => {
+    if (viewTab === 'transacted') {
+      fetchTransactedCustomers();
+    }
+  }, [viewTab, transFilterMode, transDate, transMonth, transYear, search]);
+
+  useEffect(() => {
     fetchBranches();
   }, []);
+
+  const fetchTransactedCustomers = async () => {
+    setTransLoading(true);
+    try {
+      const res = await request.get(API_ENDPOINTS.CUSTOMERS.TRANSACTED, {
+        filter_mode: transFilterMode,
+        date: transDate,
+        month: transMonth,
+        year: transYear,
+        search,
+        limit: 100,
+      });
+      setTransactedList(res.data || []);
+      setTransGroups(res.groups_summary || []);
+    } catch (err) {
+      toast.error(err.message || 'Gagal memuat daftar toko transaksi');
+    } finally {
+      setTransLoading(false);
+    }
+  };
 
   const fetchBranches = async () => {
     try {
@@ -351,15 +398,52 @@ export default function CustomerList() {
       });
       toast.success(`Status pembayaran toko berhasil diperbarui menjadi ${newStatus.toUpperCase()}!`);
       if (selectedCustomer) {
-        const res = await request.get(API_ENDPOINTS.CUSTOMERS.PURCHASE_HISTORY(selectedCustomer.id));
-        const ordersArr = Array.isArray(res.data) ? res.data : (res.data?.orders || []);
+        const [histRes, detailRes] = await Promise.all([
+          request.get(API_ENDPOINTS.CUSTOMERS.PURCHASE_HISTORY(selectedCustomer.id)),
+          request.get(API_ENDPOINTS.CUSTOMERS.DETAIL(selectedCustomer.id)).catch(() => null),
+        ]);
+        const ordersArr = Array.isArray(histRes.data) ? histRes.data : (histRes.data?.orders || []);
         setPurchaseHistory(ordersArr);
+        if (detailRes?.data) {
+          setSelectedCustomer(detailRes.data);
+        }
         fetchCustomers();
+        if (viewTab === 'transacted') fetchTransactedCustomers();
       }
     } catch (err) {
       toast.error(err.message || 'Gagal memperbarui status pembayaran');
     } finally {
       setUpdatingRetailId(null);
+    }
+  };
+
+  const handleOpenSettle = (customerObj) => {
+    setSettleTarget({
+      id: customerObj.id || customerObj.customer_id,
+      name: customerObj.name || customerObj.customer_name,
+      current_balance: Number(customerObj.current_balance || customerObj.unpaid_amount || 0),
+    });
+    setSettleMethod('tunai');
+    setSettleOpen(true);
+  };
+
+  const handleConfirmSettle = async () => {
+    if (!settleTarget) return;
+    setSettling(true);
+    try {
+      await request.put(API_ENDPOINTS.CUSTOMERS.SETTLE_BALANCE(settleTarget.id), {
+        payment_method: settleMethod,
+        notes: `Pelunasan piutang toko (${settleMethod}) oleh sales`,
+      });
+      toast.success(`Piutang toko "${settleTarget.name}" berhasil diubah menjadi LUNAS!`);
+      setSettleOpen(false);
+      setSettleTarget(null);
+      fetchCustomers();
+      if (viewTab === 'transacted') fetchTransactedCustomers();
+    } catch (err) {
+      toast.error(err.message || 'Gagal melunasi piutang toko');
+    } finally {
+      setSettling(false);
     }
   };
 
@@ -414,8 +498,45 @@ export default function CustomerList() {
     }
   };
 
+  // Kelompokkan transaksi toko berdasarkan tanggal untuk Follow Up 1 minggu
+  const groupedTransacted = useMemo(() => {
+    const map = {};
+    transactedList.forEach((row) => {
+      const d = row.trans_date || getTodayISO();
+      if (!map[d]) map[d] = [];
+      map[d].push(row);
+    });
+    return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [transactedList]);
+
   return (
     <MobileLayout title="Database Toko / Outlet" showBack={true}>
+      {/* Segmented View Tabs: Semua Database vs Toko Transaksi (Tanggal/Bulan/Tahun) */}
+      <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-2xl mb-3">
+        <button
+          type="button"
+          onClick={() => setViewTab('all')}
+          className={`py-2 px-3 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 ${
+            viewTab === 'all'
+              ? 'bg-white text-emerald-700 shadow-sm'
+              : 'text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <Store className="h-3.5 w-3.5" /> Semua Database
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewTab('transacted')}
+          className={`py-2 px-3 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 ${
+            viewTab === 'transacted'
+              ? 'bg-white text-emerald-700 shadow-sm'
+              : 'text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <Calendar className="h-3.5 w-3.5" /> Transaksi & Follow Up
+        </button>
+      </div>
+
       {/* Search & Actions Bar */}
       <div className="space-y-2 mb-4">
         <div className="flex gap-2">
@@ -438,72 +559,285 @@ export default function CustomerList() {
           </button>
         </div>
 
-        {/* Filter Pills: Tipe Toko */}
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
-          {[
-            { key: '', label: 'Semua Tipe' },
-            { key: 'ritel', label: 'Ritel' },
-            { key: 'grosir', label: 'Grosir' },
-            { key: 'apotek_klinik', label: 'Apotek / Klinik' },
-            { key: 'agen', label: 'Agen' },
-          ].map((type) => (
-            <button
-              key={type.key}
-              onClick={() => {
-                setShopType(type.key);
-                setPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors ${
-                shopType === type.key
-                  ? 'bg-slate-800 text-white'
-                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              {type.label}
-            </button>
-          ))}
-        </div>
+        {viewTab === 'all' ? (
+          <>
+            {/* Filter Pills: Tipe Toko */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+              {[
+                { key: '', label: 'Semua Tipe' },
+                { key: 'ritel', label: 'Ritel' },
+                { key: 'grosir', label: 'Grosir' },
+                { key: 'apotek_klinik', label: 'Apotek / Klinik' },
+                { key: 'agen', label: 'Agen' },
+              ].map((type) => (
+                <button
+                  key={type.key}
+                  onClick={() => {
+                    setShopType(type.key);
+                    setPage(1);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors ${
+                    shopType === type.key
+                      ? 'bg-slate-800 text-white'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {type.label}
+                </button>
+              ))}
+            </div>
 
-        {/* Filter Pills: Status Aktif & Label Toko Baru */}
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
-          {[
-            { key: 'all', label: 'Semua Status' },
-            { key: '1', label: '● Aktif' },
-            { key: '0', label: '○ Tidak Aktif' },
-          ].map((st) => (
-            <button
-              key={st.key}
-              onClick={() => {
-                setStatusFilter(st.key);
-                setPage(1);
-              }}
-              className={`px-2.5 py-1 rounded-lg font-bold whitespace-nowrap transition-colors ${
-                statusFilter === st.key
-                  ? 'bg-emerald-700 text-white'
-                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              {st.label}
-            </button>
-          ))}
+            {/* Filter Pills: Status Aktif & Label Toko Baru */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
+              {[
+                { key: 'all', label: 'Semua Status' },
+                { key: '1', label: '● Aktif' },
+                { key: '0', label: '○ Tidak Aktif' },
+              ].map((st) => (
+                <button
+                  key={st.key}
+                  onClick={() => {
+                    setStatusFilter(st.key);
+                    setPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg font-bold whitespace-nowrap transition-colors ${
+                    statusFilter === st.key
+                      ? 'bg-emerald-700 text-white'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {st.label}
+                </button>
+              ))}
 
-          <button
-            onClick={() => {
-              setLabelFilter(labelFilter === 'Toko Baru' ? '' : 'Toko Baru');
-              setPage(1);
-            }}
-            className={`px-2.5 py-1 rounded-lg font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${
-              labelFilter === 'Toko Baru'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100'
-            }`}
-          >
-            <Tag className="h-3 w-3" /> Label: Toko Baru
-          </button>
-        </div>
+              <button
+                onClick={() => {
+                  setLabelFilter(labelFilter === 'Toko Baru' ? '' : 'Toko Baru');
+                  setPage(1);
+                }}
+                className={`px-2.5 py-1 rounded-lg font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${
+                  labelFilter === 'Toko Baru'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100'
+                }`}
+              >
+                <Tag className="h-3 w-3" /> Label: Toko Baru
+              </button>
+            </div>
+          </>
+        ) : (
+          /* Kategori Tanggal, Bulan, Tahun & Follow Up 1 Minggu */
+          <div className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm space-y-2.5">
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5 text-[11px]">
+              {[
+                { key: 'followup', label: 'Follow Up 7 Hari' },
+                { key: 'day', label: 'Per Tanggal' },
+                { key: 'month', label: 'Per Bulan' },
+                { key: 'year', label: 'Per Tahun' },
+              ].map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setTransFilterMode(m.key)}
+                  className={`px-3 py-1.5 rounded-lg font-bold whitespace-nowrap transition-colors ${
+                    transFilterMode === m.key
+                      ? 'bg-emerald-700 text-white'
+                      : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            {transFilterMode === 'day' && (
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-slate-500 font-semibold">Pilih Tanggal:</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={transDate}
+                    onChange={(e) => setTransDate(e.target.value)}
+                    className="rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-800 bg-slate-50"
+                  />
+                  <span className="text-[11px] font-mono text-emerald-700 font-bold">
+                    {formatDateID(transDate)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {transFilterMode === 'month' && (
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-slate-500 font-semibold">Pilih Bulan:</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="month"
+                    value={transMonth}
+                    onChange={(e) => setTransMonth(e.target.value)}
+                    className="rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-800 bg-slate-50"
+                  />
+                  <span className="text-[11px] font-mono text-emerald-700 font-bold">
+                    {formatMonthYearID(transMonth)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {transFilterMode === 'year' && (
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-slate-500 font-semibold">Pilih Tahun:</span>
+                <select
+                  value={transYear}
+                  onChange={(e) => setTransYear(e.target.value)}
+                  className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-800 bg-slate-50"
+                >
+                  {[2024, 2025, 2026, 2027].map((yr) => (
+                    <option key={yr} value={String(yr)}>{yr}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {transGroups.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  Kelompok Tanggal Order (Tap untuk filter)
+                </p>
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  {transGroups.slice(0, 10).map((g) => {
+                    const isSelected = transFilterMode === 'day' && transDate === g.trans_date;
+                    return (
+                      <button
+                        key={g.trans_date}
+                        type="button"
+                        onClick={() => {
+                          setTransFilterMode('day');
+                          setTransDate(g.trans_date);
+                        }}
+                        className={`px-2.5 py-1 rounded-xl border text-[10px] font-bold whitespace-nowrap transition-colors ${
+                          isSelected
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                        }`}
+                      >
+                        {formatDateID(g.trans_date)} • {g.store_count} Toko
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Customer List Cards */}
+      {viewTab === 'transacted' ? (
+        /* View: Toko yang Sudah Transaksi Dikelompokkan Tanggal (Follow Up) */
+        transLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((n) => (
+              <div key={n} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 animate-pulse">
+                <div className="h-4 bg-slate-200 rounded w-1/2 mb-2" />
+                <div className="h-3 bg-slate-100 rounded w-3/4" />
+              </div>
+            ))}
+          </div>
+        ) : groupedTransacted.length > 0 ? (
+          <div className="space-y-4 mb-4">
+            {groupedTransacted.map(([dateKey, items]) => (
+              <div key={dateKey} className="space-y-2">
+                <div className="flex items-center justify-between px-3 py-2 bg-emerald-900 text-white rounded-xl text-xs shadow-sm">
+                  <div className="flex items-center gap-1.5 font-bold font-mono">
+                    <Calendar className="h-3.5 w-3.5 text-emerald-300" />
+                    <span>{formatDateID(dateKey)}</span>
+                  </div>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-100">
+                    {items.length} Toko Order • Rp {items.reduce((s, it) => s + Number(it.total_amount || 0), 0).toLocaleString('id-ID')}
+                  </span>
+                </div>
+
+                {items.map((item) => {
+                  const hasDebt = Number(item.current_balance || 0) > 0 || Number(item.unpaid_amount || 0) > 0;
+                  const debtAmt = Math.max(Number(item.current_balance || 0), Number(item.unpaid_amount || 0));
+                  return (
+                    <div
+                      key={`${dateKey}-${item.customer_id}`}
+                      className="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-100 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] font-mono text-slate-400">{item.customer_code}</span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 uppercase">
+                              {item.order_count} Faktur
+                            </span>
+                            {item.store_label && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+                                {item.store_label}
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="text-sm font-extrabold text-slate-800 mt-0.5">{item.customer_name}</h4>
+                          <p className="text-[11px] text-slate-500">{item.regency_name} • Kec. {item.district_name || '-'}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-xs font-black text-emerald-700 font-mono">
+                            Rp {Number(item.total_amount || 0).toLocaleString('id-ID')}
+                          </span>
+                          <p className="text-[10px] text-slate-400 truncate max-w-[130px]">{item.invoice_numbers}</p>
+                        </div>
+                      </div>
+
+                      {hasDebt && (
+                        <div className="bg-amber-50 border border-amber-200/70 rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-2 text-[11px]">
+                          <span className="font-bold text-amber-800">
+                            Piutang: Rp {debtAmt.toLocaleString('id-ID')}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenSettle(item)}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center gap-1 shadow-sm"
+                          >
+                            <CheckCircle2 className="h-3 w-3" /> Tandai Lunas
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 pt-1">
+                        {item.phone && (
+                          <a
+                            href={`https://wa.me/62${item.phone.replace(/^0/, '')}?text=${encodeURIComponent(`Halo ${item.customer_name}, follow up order tanggal ${formatDateID(dateKey)} dari ALSYFA Snack Coklat.`)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 text-[11px] font-bold"
+                          >
+                            <PhoneCall className="h-3 w-3" /> Follow Up WA
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenHistory({ ...item, id: item.customer_id, name: item.customer_name })}
+                          className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-xl bg-amber-50 text-amber-800 hover:bg-amber-100 text-[11px] font-bold"
+                        >
+                          <History className="h-3 w-3" /> Riwayat
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl p-8 text-center border border-slate-100 text-xs text-slate-400">
+            <Calendar className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+            <p>Belum ada toko yang melakukan transaksi pada periode ini.</p>
+          </div>
+        )
+      ) : (
+      /* Customer List Cards */
+      <>
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((n) => (
@@ -594,11 +928,22 @@ export default function CustomerList() {
                   </div>
                 )}
 
-                {/* Piutang / Balance Alert */}
+                {/* Piutang / Balance Alert + Direct Lunasi Action */}
                 {Number(c.current_balance) > 0 && (
-                  <div className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg mb-3 flex justify-between">
-                    <span>Piutang Belum Lunas:</span>
-                    <span>Rp {Number(c.current_balance).toLocaleString('id-ID')}</span>
+                  <div className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200/80 px-2.5 py-2 rounded-xl mb-3 flex items-center justify-between gap-2">
+                    <div>
+                      <span className="block text-[10px] text-amber-600 uppercase font-bold">Piutang Belum Lunas</span>
+                      <span className="font-extrabold text-xs font-mono">
+                        Rp {Number(c.current_balance).toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenSettle(c)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-sm transition-colors shrink-0"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Tandai Lunas
+                    </button>
                   </div>
                 )}
 
@@ -711,6 +1056,8 @@ export default function CustomerList() {
             setPage(1);
           }}
         />
+      )}
+      </>
       )}
 
       {/* Add / Edit Customer Modal */}
@@ -1002,7 +1349,7 @@ export default function CustomerList() {
                           {order.invoice_number}
                         </p>
                         <p className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
-                          <Clock className="h-3 w-3" /> Tanggal: {order.order_date?.substring(0, 10)}
+                          <Clock className="h-3 w-3" /> Tanggal: {formatDateID(order.order_date)}
                         </p>
                       </div>
                       <div className="text-right">
@@ -1101,6 +1448,74 @@ export default function CustomerList() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Settle Piutang Modal / Confirm */}
+      <Modal
+        isOpen={settleOpen}
+        onClose={() => {
+          setSettleOpen(false);
+          setSettleTarget(null);
+        }}
+        title="Konfirmasi Pelunasan Piutang Toko"
+      >
+        {settleTarget && (
+          <div className="space-y-4 text-xs">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-1">
+              <p className="text-[10px] font-bold uppercase text-amber-700">Toko Pelanggan</p>
+              <p className="text-sm font-extrabold text-slate-900">{settleTarget.name}</p>
+              <p className="text-xs font-black text-amber-700 font-mono">
+                Total Piutang: Rp {Number(settleTarget.current_balance || 0).toLocaleString('id-ID')}
+              </p>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Metode Pelunasan
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { key: 'tunai', label: 'Tunai (Cash)' },
+                  { key: 'transfer', label: 'Transfer Bank' },
+                ].map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setSettleMethod(m.key)}
+                    className={`py-2 px-3 rounded-xl font-bold border text-xs transition-all ${
+                      settleMethod === m.key
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-white text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSettleOpen(false);
+                  setSettleTarget(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={settling}
+                onClick={handleConfirmSettle}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow disabled:opacity-50"
+              >
+                {settling ? 'Memproses...' : 'Tandai Lunas Sekarang'}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Delete Confirm Dialog */}

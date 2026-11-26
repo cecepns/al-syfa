@@ -23,9 +23,11 @@ import AdminLayout from '../../components/layout/AdminLayout';
 import SearchInput from '../../components/common/SearchInput';
 import Pagination from '../../components/common/Pagination';
 import Modal from '../../components/common/Modal';
+import ConfirmDialog from '../../components/common/ConfirmDialog';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+import { formatDateID, formatMonthYearID, getTodayISO, getCurrentMonthISO } from '../../utils/dateFormat';
 
 export default function DailyDeposits() {
   const [deposits, setDeposits] = useState([]);
@@ -35,11 +37,15 @@ export default function DailyDeposits() {
 
   // Filters
   const [search, setSearch] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().substring(0, 7));
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthISO());
   const [selectedSales, setSelectedSales] = useState('');
   const [selectedMethod, setSelectedMethod] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
+
+  // Delete Confirm State
+  const [deleteId, setDeleteId] = useState(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Sales List for Select Dropdown
   const [salesList, setSalesList] = useState([]);
@@ -49,7 +55,7 @@ export default function DailyDeposits() {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     sales_id: '',
-    deposit_date: new Date().toISOString().substring(0, 10),
+    deposit_date: getTodayISO(),
     total_sales_amount: 0,
     operational_allowance_deduction: 30000,
     net_deposit_amount: 0,
@@ -145,7 +151,7 @@ export default function DailyDeposits() {
   };
 
   const handleOpenCreateModal = () => {
-    const today = new Date().toISOString().substring(0, 10);
+    const today = getTodayISO();
     const firstSales = salesList.length > 0 ? String(salesList[0].id) : '';
     setForm({
       sales_id: firstSales,
@@ -194,11 +200,13 @@ export default function DailyDeposits() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Hapus catatan setoran ini?')) return;
+  const handleDelete = async () => {
+    if (!deleteId) return;
     try {
-      await request.delete(API_ENDPOINTS.DEPOSITS.DELETE(id));
+      await request.del(API_ENDPOINTS.DEPOSITS.DELETE(deleteId));
       toast.success('Catatan setoran berhasil dihapus');
+      setDeleteOpen(false);
+      setDeleteId(null);
       fetchDeposits();
     } catch (err) {
       toast.error(err.message || 'Gagal menghapus setoran');
@@ -280,7 +288,7 @@ export default function DailyDeposits() {
             <p className="text-xl font-black text-blue-600">
               {summary?.total_deposits || 0} <span className="text-xs font-normal text-slate-400">faktur</span>
             </p>
-            <p className="text-[11px] text-slate-400 mt-1">Periode {selectedMonth}</p>
+            <p className="text-[11px] text-slate-400 mt-1">Periode {formatMonthYearID(selectedMonth)}</p>
           </div>
         </div>
 
@@ -370,7 +378,7 @@ export default function DailyDeposits() {
                           {item.deposit_number}
                         </span>
                         <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                          <Calendar className="h-3 w-3" /> {item.deposit_date?.substring(0, 10)}
+                          <Calendar className="h-3 w-3" /> {formatDateID(item.deposit_date)}
                         </p>
                       </td>
                       <td className="px-4 py-3.5">
@@ -433,7 +441,11 @@ export default function DailyDeposits() {
                           </button>
                         )}
                         <button
-                          onClick={() => handleDelete(item.id)}
+                          type="button"
+                          onClick={() => {
+                            setDeleteId(item.id);
+                            setDeleteOpen(true);
+                          }}
                           className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-red-600 hover:bg-red-50"
                           title="Hapus Catatan"
                         >
@@ -454,16 +466,14 @@ export default function DailyDeposits() {
           </div>
 
           {pagination && (
-            <div className="p-4 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-xs text-slate-500">
-                Menampilkan {deposits.length} dari {pagination.total} setoran
-              </span>
-              <Pagination
-                page={pagination.page}
-                totalPages={pagination.totalPages}
-                onPageChange={setPage}
-              />
-            </div>
+            <Pagination
+              pagination={pagination}
+              onPageChange={(p) => setPage(p)}
+              onLimitChange={(l) => {
+                setLimit(l);
+                setPage(1);
+              }}
+            />
           )}
         </div>
       </div>
@@ -670,6 +680,17 @@ export default function DailyDeposits() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={deleteOpen}
+        onClose={() => {
+          setDeleteOpen(false);
+          setDeleteId(null);
+        }}
+        onConfirm={handleDelete}
+        title="Hapus Catatan Setoran"
+        message="Apakah Anda yakin ingin menghapus catatan setoran harian ini? Data yang sudah dihapus tidak dapat dikembalikan."
+      />
     </AdminLayout>
   );
 }

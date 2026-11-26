@@ -19,6 +19,7 @@ import Pagination from '../../components/common/Pagination';
 import SearchInput from '../../components/common/SearchInput';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+import { formatDateID } from '../../utils/dateFormat';
 
 export default function OrdersApproval() {
   const [orders, setOrders] = useState([]);
@@ -165,8 +166,8 @@ export default function OrdersApproval() {
                     <td className="px-5 py-3.5 font-bold text-slate-900 font-mono">
                       {ord.invoice_number}
                     </td>
-                    <td className="px-5 py-3.5 text-slate-500 whitespace-nowrap">
-                      {ord.order_date}
+                    <td className="px-5 py-3.5 text-slate-500 whitespace-nowrap font-mono">
+                      {formatDateID(ord.order_date)}
                     </td>
                     <td className="px-5 py-3.5 font-bold text-slate-800">
                       {ord.customer_name}
@@ -259,7 +260,7 @@ export default function OrdersApproval() {
               <div className="text-right">
                 <p className="text-slate-400 text-[10px] uppercase font-bold">Informasi Faktur</p>
                 <p className="font-bold text-slate-800">{selectedOrder.invoice_number}</p>
-                <p className="text-slate-500">Tanggal: {selectedOrder.order_date}</p>
+                <p className="text-slate-500">Tanggal: {formatDateID(selectedOrder.order_date)}</p>
                 <p className="text-slate-500">Sales: {selectedOrder.sales_name}</p>
               </div>
             </div>

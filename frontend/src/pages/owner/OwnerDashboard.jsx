@@ -28,6 +28,7 @@ import AdminLayout from '../../components/layout/AdminLayout';
 import Modal from '../../components/common/Modal';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+import { formatDateID } from '../../utils/dateFormat';
 
 // Chart.js & React-Chartjs-2
 import {
@@ -105,6 +106,7 @@ export default function OwnerDashboard() {
   const capital = analytics?.capital || {};
   const financials = analytics?.global_profit || {};
   const branches = analytics?.branch_performance || [];
+  const newAdminBranches = analytics?.new_admin_branches || branches.filter((b) => b.source === 'admin' || b.source === 'sales');
 
   // Categories list
   const categories = useMemo(() => {
@@ -398,6 +400,27 @@ export default function OwnerDashboard() {
   return (
     <AdminLayout>
       {/* Page Title & Top Actions */}
+      {/* Page Title & Top Actions */}
+      {newAdminBranches.length > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 text-emerald-900">
+            <Building2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <div>
+              <strong className="font-extrabold">Info Pembukaan Kota Baru dari Admin:</strong>{' '}
+              <span>
+                {newAdminBranches.map((b) => `${b.branch_city}${b.opened_date ? ` (${formatDateID(b.opened_date)})` : ''}`).join(', ')}
+              </span>
+            </div>
+          </div>
+          <Link
+            to="/owner/branches"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shrink-0 w-fit"
+          >
+            Lihat Detail Cabang <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2">

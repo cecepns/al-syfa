@@ -5,7 +5,10 @@ import {
   Edit2,
   Trash2,
   PhoneCall,
-  Tag
+  Tag,
+  Calendar,
+  CheckCircle2,
+  RefreshCw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AdminLayout from '../../components/layout/AdminLayout';
@@ -17,6 +20,7 @@ import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
 import { EAST_JAVA_CITIES } from '../../utils/eastJavaCities';
+import { formatDateID, formatMonthYearID, getTodayISO, getCurrentMonthISO } from '../../utils/dateFormat';
 
 const STORE_LABEL_PRESETS = ['Toko Baru', 'Outlet Baru', 'Potensial', 'Langganan', 'Prioritas'];
 
@@ -70,15 +74,58 @@ export default function Customers() {
   const [deleteId, setDeleteId] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
+  // Settle Piutang State
+  const [settleTarget, setSettleTarget] = useState(null);
+  const [settleOpen, setSettleOpen] = useState(false);
+  const [settleMethod, setSettleMethod] = useState('tunai');
+  const [settling, setSettling] = useState(false);
+
+  // Synced Transacted Stores View (Tanggal / Bulan / Tahun)
+  const [viewTab, setViewTab] = useState('all'); // 'all' | 'transacted'
+  const [transFilterMode, setTransFilterMode] = useState('followup'); // 'followup' | 'day' | 'month' | 'year'
+  const [transDate, setTransDate] = useState(getTodayISO());
+  const [transMonth, setTransMonth] = useState(getCurrentMonthISO());
+  const [transYear, setTransYear] = useState(String(new Date().getFullYear()));
+  const [transactedList, setTransactedList] = useState([]);
+  const [transGroups, setTransGroups] = useState([]);
+  const [transLoading, setTransLoading] = useState(false);
+
   useEffect(() => {
     fetchCustomers();
   }, [page, limit, search, shopType, salesFilter, statusFilter]);
+
+  useEffect(() => {
+    if (viewTab === 'transacted') {
+      fetchTransacted();
+    }
+  }, [viewTab, transFilterMode, transDate, transMonth, transYear, search, salesFilter]);
 
   useEffect(() => {
     fetchSales();
     fetchBranches();
     loadProvinces();
   }, []);
+
+  const fetchTransacted = async () => {
+    setTransLoading(true);
+    try {
+      const res = await request.get(API_ENDPOINTS.CUSTOMERS.TRANSACTED, {
+        filter_mode: transFilterMode,
+        date: transDate,
+        month: transMonth,
+        year: transYear,
+        sales_id: salesFilter || undefined,
+        search,
+        limit: 100,
+      });
+      setTransactedList(res.data || []);
+      setTransGroups(res.groups_summary || []);
+    } catch (err) {
+      toast.error(err.message || 'Gagal memuat toko yang bertransaksi');
+    } finally {
+      setTransLoading(false);
+    }
+  };
 
   const fetchSales = async () => {
     try {
@@ -352,6 +399,46 @@ export default function Customers() {
     }
   };
 
+  const handleOpenSettle = (c) => {
+    setSettleTarget({
+      id: c.id || c.customer_id,
+      name: c.name || c.customer_name,
+      current_balance: Number(c.current_balance || c.unpaid_amount || 0),
+    });
+    setSettleMethod('tunai');
+    setSettleOpen(true);
+  };
+
+  const handleConfirmSettle = async () => {
+    if (!settleTarget) return;
+    setSettling(true);
+    try {
+      await request.put(API_ENDPOINTS.CUSTOMERS.SETTLE_BALANCE(settleTarget.id), {
+        payment_method: settleMethod,
+        notes: `Pelunasan piutang toko (${settleMethod}) oleh admin`,
+      });
+      toast.success(`Piutang toko "${settleTarget.name}" berhasil dilunasi!`);
+      setSettleOpen(false);
+      setSettleTarget(null);
+      fetchCustomers();
+      if (viewTab === 'transacted') fetchTransacted();
+    } catch (err) {
+      toast.error(err.message || 'Gagal melunasi piutang toko');
+    } finally {
+      setSettling(false);
+    }
+  };
+
+  const groupedTransacted = useMemo(() => {
+    const map = {};
+    transactedList.forEach((row) => {
+      const d = row.trans_date || getTodayISO();
+      if (!map[d]) map[d] = [];
+      map[d].push(row);
+    });
+    return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [transactedList]);
+
   return (
     <AdminLayout>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
@@ -360,16 +447,56 @@ export default function Customers() {
             Database Toko & Outlet Pelanggan
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Manajemen direktori pelanggan, label toko, status aktif/nonaktif, dan koordinat GPS outlet.
+            Tersinkron langsung dengan input sales lapangan, kategori toko transaksi (Tanggal/Bulan/Tahun), dan kontrol piutang.
           </p>
         </div>
 
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              fetchCustomers();
+              if (viewTab === 'transacted') fetchTransacted();
+            }}
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-sm transition-all"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${(loading || transLoading) ? 'animate-spin text-emerald-600' : ''}`} />
+            <span>Sinkronkan</span>
+          </button>
+
+          <button
+            onClick={handleOpenCreate}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-200 transition-all"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Tambah Toko Baru</span>
+          </button>
+        </div>
+      </div>
+
+      {/* View Mode Tabs */}
+      <div className="flex gap-2 mb-4">
         <button
-          onClick={handleOpenCreate}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-200 transition-all"
+          type="button"
+          onClick={() => setViewTab('all')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            viewTab === 'all'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
         >
-          <Plus className="h-4 w-4" />
-          <span>Tambah Toko Baru</span>
+          <Store className="h-3.5 w-3.5" /> Semua Database Toko (Sales & Admin)
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewTab('transacted')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            viewTab === 'transacted'
+              ? 'bg-emerald-700 text-white shadow-sm'
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <Calendar className="h-3.5 w-3.5" /> Toko Transaksi Sales (Tanggal / Bulan / Tahun)
         </button>
       </div>
 
@@ -451,7 +578,182 @@ export default function Customers() {
         </div>
       </div>
 
-      {/* Customers Table */}
+      {/* Transacted View vs All Database Table */}
+      {viewTab === 'transacted' ? (
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex gap-1.5 flex-wrap">
+                {[
+                  { key: 'followup', label: 'Follow Up 7 Hari Terakhir' },
+                  { key: 'day', label: 'Kategori Tanggal' },
+                  { key: 'month', label: 'Kategori Bulan' },
+                  { key: 'year', label: 'Kategori Tahun' },
+                ].map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setTransFilterMode(m.key)}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition-colors ${
+                      transFilterMode === m.key
+                        ? 'bg-emerald-700 text-white'
+                        : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {transFilterMode === 'day' && (
+                  <>
+                    <input
+                      type="date"
+                      value={transDate}
+                      onChange={(e) => setTransDate(e.target.value)}
+                      className="rounded-xl border border-slate-200 px-3 py-1.5 font-bold text-slate-800 bg-slate-50"
+                    />
+                    <span className="font-mono font-bold text-emerald-700">{formatDateID(transDate)}</span>
+                  </>
+                )}
+                {transFilterMode === 'month' && (
+                  <>
+                    <input
+                      type="month"
+                      value={transMonth}
+                      onChange={(e) => setTransMonth(e.target.value)}
+                      className="rounded-xl border border-slate-200 px-3 py-1.5 font-bold text-slate-800 bg-slate-50"
+                    />
+                    <span className="font-mono font-bold text-emerald-700">{formatMonthYearID(transMonth)}</span>
+                  </>
+                )}
+                {transFilterMode === 'year' && (
+                  <select
+                    value={transYear}
+                    onChange={(e) => setTransYear(e.target.value)}
+                    className="rounded-xl border border-slate-200 px-3 py-1.5 font-bold text-slate-800 bg-slate-50"
+                  >
+                    {[2024, 2025, 2026, 2027].map((yr) => (
+                      <option key={yr} value={String(yr)}>{yr}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+
+            {transGroups.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">
+                {transGroups.slice(0, 14).map((g) => {
+                  const active = transFilterMode === 'day' && transDate === g.trans_date;
+                  return (
+                    <button
+                      key={g.trans_date}
+                      type="button"
+                      onClick={() => {
+                        setTransFilterMode('day');
+                        setTransDate(g.trans_date);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors ${
+                        active
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                    >
+                      {formatDateID(g.trans_date)} • {g.store_count} Toko
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {transLoading ? (
+            <div className="bg-white rounded-2xl p-8 text-center text-xs text-slate-400 border border-slate-100">
+              Memuat kelompok toko transaksi...
+            </div>
+          ) : groupedTransacted.length > 0 ? (
+            groupedTransacted.map(([dateKey, items]) => (
+              <div key={dateKey} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                <div className="px-5 py-3 bg-slate-900 text-white flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 font-bold font-mono">
+                    <Calendar className="h-4 w-4 text-emerald-400" />
+                    <span>Tanggal Order: {formatDateID(dateKey)}</span>
+                  </div>
+                  <span className="font-bold text-emerald-300">
+                    {items.length} Toko Transaksi • Total Rp {items.reduce((s, it) => s + Number(it.total_amount || 0), 0).toLocaleString('id-ID')}
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-100">
+                      <tr>
+                        <th className="px-5 py-2.5">Toko / Outlet</th>
+                        <th className="px-5 py-2.5">Sales Petugas</th>
+                        <th className="px-5 py-2.5">Wilayah</th>
+                        <th className="px-5 py-2.5">Faktur Order</th>
+                        <th className="px-5 py-2.5 text-right">Total Transaksi</th>
+                        <th className="px-5 py-2.5 text-right">Status Piutang</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {items.map((item) => {
+                        const debtAmt = Math.max(Number(item.current_balance || 0), Number(item.unpaid_amount || 0));
+                        return (
+                          <tr key={`${dateKey}-${item.customer_id}`} className="hover:bg-slate-50/60">
+                            <td className="px-5 py-3">
+                              <strong className="font-bold text-slate-900 block">{item.customer_name}</strong>
+                              <span className="text-[10px] font-mono text-slate-400">{item.customer_code}</span>
+                            </td>
+                            <td className="px-5 py-3">
+                              <span className="px-2 py-0.5 rounded-lg bg-blue-50 text-blue-800 font-bold text-[10px]">
+                                {item.sales_name || '-'}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3 text-[11px]">
+                              <span className="font-semibold">{item.regency_name || '-'}</span>
+                              <p className="text-[10px] text-slate-400">Kec. {item.district_name || '-'}</p>
+                            </td>
+                            <td className="px-5 py-3 font-mono text-[11px] text-slate-600 max-w-[180px] truncate">
+                              {item.invoice_numbers} ({item.order_count}x)
+                            </td>
+                            <td className="px-5 py-3 text-right font-black text-emerald-700 font-mono">
+                              Rp {Number(item.total_amount || 0).toLocaleString('id-ID')}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              {debtAmt > 0 ? (
+                                <div className="inline-flex items-center gap-1.5">
+                                  <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-bold font-mono">
+                                    Rp {debtAmt.toLocaleString('id-ID')}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenSettle(item)}
+                                    className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold"
+                                  >
+                                    Lunasi
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-emerald-600 font-bold">Lunas</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="bg-white rounded-2xl p-8 text-center text-xs text-slate-400 border border-slate-100">
+              Belum ada transaksi toko pada kategori tanggal/bulan/tahun yang dipilih.
+            </div>
+          )}
+        </div>
+      ) : (
+      /* Customers Table */
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -552,9 +854,18 @@ export default function Customers() {
                       </td>
                       <td className="px-5 py-3.5 text-right font-black">
                         {Number(c.current_balance) > 0 ? (
-                          <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg">
-                            Rp {Number(c.current_balance).toLocaleString('id-ID')}
-                          </span>
+                          <div className="inline-flex flex-col items-end gap-1">
+                            <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg font-mono">
+                              Rp {Number(c.current_balance).toLocaleString('id-ID')}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSettle(c)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold transition-colors"
+                            >
+                              <CheckCircle2 className="h-3 w-3" /> Tandai Lunas
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-emerald-600 font-bold">Lunas (Rp 0)</span>
                         )}
@@ -592,7 +903,7 @@ export default function Customers() {
           </table>
         </div>
 
-        {pagination && pagination.totalPages > 1 && (
+        {pagination && (
           <Pagination
             pagination={pagination}
             onPageChange={(p) => setPage(p)}
@@ -603,6 +914,7 @@ export default function Customers() {
           />
         )}
       </div>
+      )}
 
       {/* Modal Add / Edit Customer */}
       <Modal
@@ -819,6 +1131,74 @@ export default function Customers() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Settle Piutang Modal */}
+      <Modal
+        isOpen={settleOpen}
+        onClose={() => {
+          setSettleOpen(false);
+          setSettleTarget(null);
+        }}
+        title="Konfirmasi Pelunasan Piutang Toko"
+      >
+        {settleTarget && (
+          <div className="space-y-4 text-xs">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-1">
+              <p className="text-[10px] font-bold uppercase text-amber-700">Toko Pelanggan</p>
+              <p className="text-sm font-extrabold text-slate-900">{settleTarget.name}</p>
+              <p className="text-xs font-black text-amber-700 font-mono">
+                Total Piutang: Rp {Number(settleTarget.current_balance || 0).toLocaleString('id-ID')}
+              </p>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Metode Pelunasan
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { key: 'tunai', label: 'Tunai (Cash)' },
+                  { key: 'transfer', label: 'Transfer Bank' },
+                ].map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setSettleMethod(m.key)}
+                    className={`py-2 px-3 rounded-xl font-bold border text-xs transition-all ${
+                      settleMethod === m.key
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-white text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSettleOpen(false);
+                  setSettleTarget(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={settling}
+                onClick={handleConfirmSettle}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow disabled:opacity-50"
+              >
+                {settling ? 'Memproses...' : 'Tandai Lunas Sekarang'}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Delete Confirm */}

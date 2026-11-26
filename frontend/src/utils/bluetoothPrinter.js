@@ -5,6 +5,8 @@
  * Supports RawBT Android Bluetooth App Intent fallback
  */
 
+import { formatDateID } from './dateFormat';
+
 // Popular Thermal Printer Service UUIDs (ESC/POS, POS-58, POS-80, RPP, PT-210, Panda, Iware, etc.)
 export const THERMAL_PRINTER_SERVICES = [
   '000018f0-0000-1000-8000-00805f9b34fb', // Standard Chinese POS service
@@ -172,7 +174,7 @@ export function buildEscPosBytes(order, format = '58mm') {
   addBytes([0x1B, 0x61, 0x00]); // Align Left
   addText(doubleDivider);
   addText(`No Faktur : ${order.invoice_number || '-'}\n`);
-  addText(`Tanggal   : ${order.order_date ? order.order_date.substring(0, 10) : '-'}\n`);
+  addText(`Tanggal   : ${formatDateID(order.order_date)}\n`);
   addText(`Sales     : ${order.sales_name || '-'}\n`);
   addText(`Toko      : ${order.customer_name || '-'}\n`);
   if (order.customer_address) {

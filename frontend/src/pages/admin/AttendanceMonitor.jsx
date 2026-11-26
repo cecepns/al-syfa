@@ -18,6 +18,7 @@ import SearchInput from '../../components/common/SearchInput';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS, getStorageUrl } from '../../utils/endpoints';
+import { formatDateID } from '../../utils/dateFormat';
 
 export default function AttendanceMonitor() {
   const currentUser = JSON.parse(localStorage.getItem('alsyifa_user') || '{}');
@@ -357,7 +358,7 @@ export default function AttendanceMonitor() {
                             {a.vehicle_type} ({a.vehicle_number || '-'})
                           </span>
                         </td>
-                        <td className="px-5 py-3.5 text-slate-600">{a.date?.substring(0, 10)}</td>
+                        <td className="px-5 py-3.5 text-slate-600 font-mono">{formatDateID(a.date)}</td>
                         <td className="px-5 py-3.5 text-center font-mono text-[11px] text-slate-500">
                           {a.work_start_time ? a.work_start_time.substring(0, 5) : '08:00'} -{' '}
                           {a.work_end_time ? a.work_end_time.substring(0, 5) : '15:00'}

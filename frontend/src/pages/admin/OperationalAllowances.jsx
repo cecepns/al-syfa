@@ -23,9 +23,10 @@ import SearchInput from '../../components/common/SearchInput';
 import AppSelect from '../../components/common/AppSelect';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+import { formatDateID, formatMonthYearID, getCurrentMonthISO } from '../../utils/dateFormat';
 
 export default function OperationalAllowances() {
-  const currentMonthStr = new Date().toISOString().substring(0, 7);
+  const currentMonthStr = getCurrentMonthISO();
   const [selectedMonth, setSelectedMonth] = useState(currentMonthStr);
   const [activeTab, setActiveTab] = useState('monthly'); // 'monthly' | 'daily'
   const [monthlyData, setMonthlyData] = useState([]);
@@ -67,8 +68,40 @@ export default function OperationalAllowances() {
       const res = await request.get(API_ENDPOINTS.ALLOWANCES.MONTHLY, {
         month: selectedMonth,
       });
-      setMonthlyData(res.data || []);
-      setSummary(res.summary || null);
+      const list = Array.isArray(res.data)
+        ? res.data
+        : (res.data?.sales_allowances || []);
+      setMonthlyData(list);
+
+      const rawSum = res.summary || res.data?.summary || null;
+      const computed = list.reduce(
+        (acc, it) => {
+          const days = Number(it.active_days ?? it.total_days ?? 0);
+          const bbm = Number(it.total_bbm || 0);
+          const motor = Number(it.total_motor_rent ?? it.total_motor ?? 0);
+          const tot = Number(it.total_allowance ?? it.total_amount ?? 0);
+          const paid = Number(it.paid_amount || 0);
+          const pend = Number(it.pending_amount || 0);
+          return {
+            total_days: acc.total_days + days,
+            total_bbm: acc.total_bbm + bbm,
+            total_motor_rent: acc.total_motor_rent + motor,
+            total_allowance: acc.total_allowance + tot,
+            total_paid: acc.total_paid + paid,
+            total_pending: acc.total_pending + pend,
+          };
+        },
+        { total_days: 0, total_bbm: 0, total_motor_rent: 0, total_allowance: 0, total_paid: 0, total_pending: 0 }
+      );
+
+      setSummary({
+        total_days: Number(rawSum?.total_days ?? computed.total_days),
+        total_bbm: Number(rawSum?.total_bbm ?? computed.total_bbm),
+        total_motor_rent: Number(rawSum?.total_motor_rent ?? rawSum?.total_motor ?? computed.total_motor_rent),
+        total_allowance: Number(rawSum?.total_allowance ?? rawSum?.grand_total ?? computed.total_allowance),
+        total_paid: Number(rawSum?.total_paid ?? computed.total_paid),
+        total_pending: Number(rawSum?.total_pending ?? rawSum?.total_unpaid ?? computed.total_pending),
+      });
     } catch (err) {
       toast.error('Gagal memuat rekapitulasi tunjangan bulanan');
     } finally {
@@ -82,9 +115,36 @@ export default function OperationalAllowances() {
       const res = await request.get(API_ENDPOINTS.ALLOWANCES.DAILY, {
         month: selectedMonth,
         sales_id: salesFilter || undefined,
+        limit: 100,
       });
-      setDailyData(res.data || []);
-      setSummary(res.summary || null);
+      const list = Array.isArray(res.data) ? res.data : (res.data?.items || []);
+      setDailyData(list);
+
+      const rawSum = res.summary || res.data?.summary || null;
+      const computed = list.reduce(
+        (acc, it) => {
+          const bbm = Number(it.bbm_amount || 0);
+          const motor = Number(it.motor_rent_amount || 0);
+          const tot = Number(it.total_amount || 0);
+          acc.total_days += 1;
+          acc.total_bbm += bbm;
+          acc.total_motor_rent += motor;
+          acc.total_allowance += tot;
+          if (it.status === 'paid') acc.total_paid += tot;
+          else acc.total_pending += tot;
+          return acc;
+        },
+        { total_days: 0, total_bbm: 0, total_motor_rent: 0, total_allowance: 0, total_paid: 0, total_pending: 0 }
+      );
+
+      setSummary({
+        total_days: Number(rawSum?.total_days ?? computed.total_days),
+        total_bbm: Number(rawSum?.total_bbm ?? computed.total_bbm),
+        total_motor_rent: Number(rawSum?.total_motor_rent ?? rawSum?.total_motor ?? computed.total_motor_rent),
+        total_allowance: Number(rawSum?.total_allowance ?? rawSum?.grand_total ?? computed.total_allowance),
+        total_paid: Number(rawSum?.total_paid ?? computed.total_paid),
+        total_pending: Number(rawSum?.total_pending ?? rawSum?.total_unpaid ?? computed.total_pending),
+      });
     } catch (err) {
       toast.error('Gagal memuat catatan harian tunjangan');
     } finally {
@@ -291,22 +351,22 @@ export default function OperationalAllowances() {
                       </td>
                       <td className="px-5 py-3.5 text-center font-bold text-slate-900">
                         <span className="bg-emerald-50 text-emerald-800 px-2 py-1 rounded-lg">
-                          {item.active_days} Hari
+                          {item.active_days ?? item.total_days ?? 0} Hari
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-right font-medium">
                         Rp {Number(item.total_bbm || 0).toLocaleString('id-ID')}
                       </td>
                       <td className="px-5 py-3.5 text-right font-medium">
-                        Rp {Number(item.total_motor_rent || 0).toLocaleString('id-ID')}
+                        Rp {Number(item.total_motor_rent ?? item.total_motor ?? 0).toLocaleString('id-ID')}
                       </td>
                       <td className="px-5 py-3.5 text-right font-black text-slate-900 text-sm">
-                        Rp {Number(item.total_allowance || 0).toLocaleString('id-ID')}
+                        Rp {Number(item.total_allowance ?? item.total_amount ?? 0).toLocaleString('id-ID')}
                       </td>
                       <td className="px-5 py-3.5 text-center">
-                        {item.pending_count === 0 ? (
+                        {Number(item.pending_count || 0) === 0 ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                            <CheckCircle2 className="h-3 w-3" /> Lunas Dicairkan
+                            <CheckCircle2 className="h-3 w-3" /> {Number(item.active_days ?? item.total_days ?? 0) > 0 ? 'Lunas Dicairkan' : 'Belum Ada Klaim'}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
@@ -315,7 +375,7 @@ export default function OperationalAllowances() {
                         )}
                       </td>
                       <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                        {item.pending_count > 0 ? (
+                        {Number(item.pending_count || 0) > 0 ? (
                           <button
                             type="button"
                             onClick={() => handleOpenPay(item)}
@@ -324,7 +384,9 @@ export default function OperationalAllowances() {
                             <CreditCard className="h-3.5 w-3.5" /> Cairkan Tunjangan
                           </button>
                         ) : (
-                          <span className="text-[11px] text-slate-400 font-semibold">Tercairkan Penuh</span>
+                          <span className="text-[11px] text-slate-400 font-semibold">
+                            {Number(item.active_days ?? item.total_days ?? 0) > 0 ? 'Tercairkan Penuh' : '-'}
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -367,7 +429,7 @@ export default function OperationalAllowances() {
                   dailyData.map((d) => (
                     <tr key={d.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-5 py-3.5 font-bold font-mono text-slate-900">
-                        {d.date ? d.date.substring(0, 10) : '-'}
+                        {formatDateID(d.date)}
                       </td>
                       <td className="px-5 py-3.5 font-bold text-slate-800">
                         {d.sales_name}
@@ -434,7 +496,7 @@ export default function OperationalAllowances() {
               <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-200">
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase font-bold">Periode:</span>
-                  <p className="font-bold text-slate-800">{selectedMonth}</p>
+                  <p className="font-bold text-slate-800">{formatMonthYearID(selectedMonth)}</p>
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase font-bold">Hari Belum Cair:</span>
@@ -446,12 +508,12 @@ export default function OperationalAllowances() {
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
               <span className="font-bold text-emerald-900">Total Nominal yang Dicairkan:</span>
               <span className="text-base font-black text-emerald-800">
-                Rp {Number(selectedSalesPay.pending_count * 30000).toLocaleString('id-ID')}
+                Rp {Number(selectedSalesPay.pending_amount ?? (selectedSalesPay.pending_count * 30000)).toLocaleString('id-ID')}
               </span>
             </div>
 
             <p className="text-[11px] text-slate-500">
-              Setelah dikonfirmasi, seluruh catatan tunjangan harian periode {selectedMonth} untuk sales ini akan ditandai sebagai <strong>Dicairkan (Paid)</strong>.
+              Setelah dikonfirmasi, seluruh catatan tunjangan harian periode {formatMonthYearID(selectedMonth)} untuk sales ini akan ditandai sebagai <strong>Dicairkan (Paid)</strong>.
             </p>
 
             <div className="flex gap-2 pt-2">

@@ -25,6 +25,7 @@ import AppSelect from '../../components/common/AppSelect';
 import AddBranchCityModal from '../../components/owner/AddBranchCityModal';
 import { request } from '../../utils/request';
 import { API_ENDPOINTS } from '../../utils/endpoints';
+import { formatDateID } from '../../utils/dateFormat';
 
 // Chart.js & React-Chartjs-2
 import {
@@ -156,6 +157,7 @@ export default function OwnerBranchReport() {
   };
 
   const branches = data?.branch_performance || [];
+  const newAdminBranches = data?.new_admin_branches || branches.filter((b) => b.source === 'admin' || b.source === 'sales');
   const availableCities = data?.available_cities || Array.from(new Set(branches.map(b => b.branch_city)));
   const selectedCityData = selectedCity !== 'all' 
     ? (data?.selected_city_data || branches.find(b => b.branch_city.toLowerCase() === selectedCity.toLowerCase())) 
@@ -507,6 +509,39 @@ export default function OwnerBranchReport() {
           </p>
         </div>
       </div>
+
+      {/* Pemberitahuan Pembukaan Kota Baru dari Admin / Sales */}
+      {newAdminBranches.length > 0 && (
+        <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-white border border-emerald-200 rounded-2xl p-4 mb-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2 text-emerald-800 font-extrabold text-xs uppercase tracking-wider">
+              <Building2 className="h-4 w-4 text-emerald-600" />
+              <span>Pembukaan Kota / Cabang Baru Terhubung ({newAdminBranches.length} Kota)</span>
+            </div>
+            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-600 text-white w-fit">
+              Sinkron Otomatis dari Admin & Lapangan
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {newAdminBranches.map((nb, idx) => (
+              <button
+                key={`${nb.branch_city}-${idx}`}
+                type="button"
+                onClick={() => setSelectedCity(nb.branch_city)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-emerald-200 text-xs font-bold text-slate-800 hover:bg-emerald-50 shadow-sm transition-colors"
+              >
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span>{nb.branch_city}</span>
+                {nb.province_name && <span className="text-[10px] text-slate-400">({nb.province_name})</span>}
+                {nb.opened_date && <span className="text-[10px] font-mono text-emerald-700">• {formatDateID(nb.opened_date)}</span>}
+                <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-extrabold">
+                  {nb.source === 'sales' ? 'Sales' : 'Admin'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* City Category Selector Bar (Single Clean Instance) */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
